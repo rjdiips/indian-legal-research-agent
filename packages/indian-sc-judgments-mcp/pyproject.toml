@@ -1,0 +1,25 @@
+[project]
+name = "indian-sc-judgments-mcp"   # working name: check it is free on PyPI and the MCP registry
+version = "0.0.1"
+description = "Read-only MCP server for Indian Supreme Court judgments: search, passages, citations and treatment"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+  "mcp>=2.3",
+  "pydantic>=2.8",
+  "duckdb>=1.1",
+  "bm25s>=0.2",
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+# Full mode: bge-m3 dense search and bge-reranker-v2-m3 (PRD §7, "Lite and full modes")
+full = ["sentence-transformers>=3.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/indian_sc_judgments_mcp"]

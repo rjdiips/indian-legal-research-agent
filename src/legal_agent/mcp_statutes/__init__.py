@@ -1,0 +1,1 @@
+"""Internal statutes MCP server."""

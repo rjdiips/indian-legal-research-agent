@@ -1,0 +1,64 @@
+[project]
+name = "legal-agent"
+version = "0.1.0"
+description = "Indian legal research agent over Supreme Court judgments (PRD-004)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+  "indian-sc-judgments-mcp",
+  "langgraph>=0.6",
+  "langgraph-checkpoint-postgres>=2.0",
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "pydantic>=2.8",
+  "pydantic-settings>=2.4",
+  "litellm>=1.50",
+  "httpx>=0.27",
+  "psycopg[binary,pool]>=3.2",
+  "scikit-learn>=1.5",
+  "mcp>=2.3",
+]
+
+[project.optional-dependencies]
+# Dense search and reranking (bge-m3, bge-reranker-v2-m3). Pulls in torch.
+full = ["indian-sc-judgments-mcp[full]"]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "hypothesis>=6.110",
+  "ruff>=0.6",
+  "testcontainers[postgres]>=4.8",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+indian-sc-judgments-mcp = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/legal_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "packages/indian-sc-judgments-mcp/tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+  "integration: needs Docker (testcontainers Postgres)",
+  "live: calls a real model; run only as a deliberate, budgeted job",
+]
+addopts = "-m 'not integration and not live'"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
