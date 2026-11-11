@@ -4,7 +4,7 @@ CREATE TABLE snapshots (
     snapshot_id  text PRIMARY KEY,           -- sha256 of the manifest's object list
     fetched_at   timestamptz NOT NULL,
     manifest     jsonb NOT NULL,             -- keys, sizes, ETags, dedup counts
-    recorded_at  timestamptz NOT NULL DEFAULT now()
+    recorded_at  timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE judgments (
@@ -29,8 +29,8 @@ CREATE TABLE judgments (
     source_uri           text NOT NULL,
     license              text NOT NULL,
     attribution          text NOT NULL,
-    ingested_at          timestamptz NOT NULL DEFAULT now(),
-    updated_at           timestamptz NOT NULL DEFAULT now()
+    ingested_at          timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at           timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX judgments_decision_date_idx ON judgments (decision_date);
