@@ -11,6 +11,6 @@ services:
       - "5440:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d:ro
+    # Schema comes from `legal-agent migrate`, not initdb, so applied files are tracked.
 volumes:
   pgdata:

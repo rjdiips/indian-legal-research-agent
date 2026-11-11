@@ -20,6 +20,9 @@ dependencies = [
   "mcp>=2.3",
 ]
 
+[project.scripts]
+legal-agent = "legal_agent.cli:main"
+
 [project.optional-dependencies]
 # Dense search and reranking (bge-m3, bge-reranker-v2-m3). Pulls in torch.
 full = ["indian-sc-judgments-mcp[full]"]
@@ -62,3 +65,6 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["legal_agent", "indian_sc_judgments_mcp"]

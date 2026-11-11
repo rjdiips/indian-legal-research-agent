@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>indian-supreme-court-judgments</Name><Prefix>metadata/parquet/</Prefix><KeyCount>1</KeyCount><MaxKeys>1</MaxKeys><IsTruncated>false</IsTruncated><Contents><Key>metadata/parquet/year=1951/metadata.parquet</Key><LastModified>2026-04-11T13:53:43.000Z</LastModified><ETag>&quot;e9fea03e57c1551445d0f17d936f98da&quot;</ETag><Size>85845</Size><StorageClass>INTELLIGENT_TIERING</StorageClass></Contents></ListBucketResult>
