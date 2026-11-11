@@ -8,6 +8,9 @@ Reads a bucket metadata parquet into plain `Judgment` records. Storage-agnostic
 - The Decision date comes only from `decision_date`. The parquet's `year`
   column is the Reporter year and is kept as `reporter_year`, never used for dates.
 - Missing or unparseable decision dates are kept as `None` and reported.
+
+DuckDB is used only as a Parquet reader: an in-memory connection, one SELECT,
+nothing written. It is not a store; Postgres is the only store (ADR-0001, PRD §7).
 """
 
 from __future__ import annotations
