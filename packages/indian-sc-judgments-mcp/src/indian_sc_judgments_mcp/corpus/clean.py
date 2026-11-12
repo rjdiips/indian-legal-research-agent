@@ -8,10 +8,14 @@ The offset map records the copied runs, so any cleaned span maps back to a raw s
 What is removed:
 - page headers and footers: page numbers, "SUPREME COURT REPORTS" lines, Reporter citation
   lines such as `[2015] 10 S.C.R.`, running titles (`A v. B`, `... [SINHA, J.]`) at the top of a
-  page, and short noise lines at a page's top or bottom;
-- margin letters (`A` to `H` beside the text of the S.C.R. page): lines holding only them, a
-  letter before lowercase text or a paragraph number at line start, and a letter after
-  lowercase text at line end;
+  page, and short noise lines at a page's top or bottom; "SUPREME COURT REPORTS" lines and
+  citation lines of the Judgment's own volume (`[2017] 9 S.C.R.`) anywhere on a page;
+- blocks of OCR noise from a stamp or smudge: runs of lines that are mostly symbols;
+- margin letters (`A` to `H` beside the text of the S.C.R. page): lines holding only them or a
+  misread form (`h`, `s·`), a letter before lowercase text or a paragraph number at line start,
+  and a letter after lowercase text at line end. In a scan that glues them to its lines on half
+  its pages or more, also a letter (or `c`) before a capitalised word, inside a line, or after a
+  colon or stray mark;
 - hyphenation at line end (the hyphen is dropped unless the document spells the word with a
   hyphen elsewhere) and line-wrap breaks (replaced by a space);
 - the Judgment's own citation line on its first page (`[2017] 7 S.C.R. 348`).
@@ -26,9 +30,11 @@ from __future__ import annotations
 
 import bisect
 import hashlib
+import itertools
 import json
 import re
 import statistics
+import unicodedata
 from dataclasses import dataclass, field
 
 from indian_sc_judgments_mcp.corpus.raw_text import PAGE_BREAK
@@ -50,9 +56,16 @@ _FOOTNOTE = re.compile(r"\(\s*[\dIl!]{1,2}\s*\)")
 _VERSUS = re.compile(r"v\s*\.|\bvs\b|\bversus\b", re.I)
 _BRACKETED_JUDGE = re.compile(r"[\[\(][^\[\]\(\)]{2,40}J\s*\.?\s*[\]\)]?\s*\d{0,4}\s*$")
 _NOISE = re.compile(r"[\W_]{0,3}[A-Za-z]{0,2}[\W_]{0,3}")
-_MARGIN_LINE = re.compile(r"[\W_]*(?:[A-Hc0][.,]?\s*){1,8}[\W_]*")
+_MARGIN_LINE = re.compile(r"[\W_]*(?:[A-Hc0][.,]?\s*){1,8}[\W_]*|[\s·'~,:;.]*[b-hs](?:[·'~,:;]*|\.{2,})")
 _LEAD_MARGIN = re.compile(r"[B-H]\s+(?=[a-z]|\d{1,3}\s*\.\s)")
 _TRAIL_MARGIN = re.compile(r"(?<=[a-z,;.\-)])\s+[A-H]$")
+# In a scan whose text layer glues margin letters to its lines, they also come before a
+# capitalised word (`B Nidhi Jain`) and after a colon or a stray mark (`Held: G`, `The · F`).
+_GLUED_MARGIN = re.compile(r"(?m)^[ \t]*[B-Hc] [a-z]|(?<=[a-z,;.)]) [A-Hc][ \t]*$")
+_LEAD_MARGIN_GLUED = re.compile(r"[B-Hc]\s+(?=[a-z]|[A-Z][a-z]|\d{1,3}\s*\.\s)")
+# ... and inside a line, read as `c`: `the case, which c included`.
+_MID_MARGIN_GLUED = re.compile(r"(?<=[a-z,] )c (?=[a-z])")
+_TRAIL_MARGIN_GLUED = re.compile(r"(?<=[a-z,;.:\-)~'·•])\s+(?:[·•]\s*)?[A-Hc]·*$")
 # Lowercase words that are often followed by a letter label (`clause A`), so a trailing capital
 # after them is not a margin letter.
 _LABEL_WORDS = frozenset(
@@ -105,6 +118,9 @@ _PARA_NUMBER = re.compile(r"\d{1,3}\s*[.,]|\(?[ivxlIVXL]{1,5}\)|\(?[a-z]\)|\(\d{
 _CLOSE_NUMBER = re.compile(r"\d{1,3}\)")
 # A heading line opening the body (`JUDGMENT`, `O R D E R`), kept on a line of its own.
 _HEADING = re.compile(r"(?:J\s?U\s?D\s?G\s?M\s?E\s?N\s?T|O\s?R\s?D\s?E\s?R|Judgment|Order)\s*:?")
+# Dot leaders, rules, ellipses and masks (`......`, `____`, `* * *`, `××××`): left out when
+# judging if a line is noise.
+_FILL = re.compile(r"[.…·•_*×\-—–=\s]{3,}")
 _SENTENCE_END = re.compile(r"[.:;?!\"”'’]$")
 # How far from a page's top or bottom furniture is looked for, not counting margin letters and noise.
 _TOP_LINES = 6
@@ -209,27 +225,16 @@ def _strip(raw: str, pieces: list[tuple[int, int]]) -> list[tuple[int, int]]:
     return out
 
 
-def _cut_front(line: _Line, n: int) -> None:
-    """Drop the first `n` characters of a line."""
-    while n > 0 and line.pieces:
-        a, b = line.pieces[0]
-        if b - a <= n:
-            line.pieces.pop(0)
-            n -= b - a
-        else:
-            line.pieces[0] = (a + n, b)
-            n = 0
-
-
-def _cut_back(line: _Line, n: int) -> None:
-    while n > 0 and line.pieces:
-        a, b = line.pieces[-1]
-        if b - a <= n:
-            line.pieces.pop()
-            n -= b - a
-        else:
-            line.pieces[-1] = (a, b - n)
-            n = 0
+def _cut(line: _Line, start: int, end: int) -> None:
+    """Drop characters `start` to `end` of a line."""
+    pieces, pos = [], 0
+    for a, b in line.pieces:
+        if start > pos:
+            pieces.append((a, min(b, a + start - pos)))
+        if end < pos + b - a:
+            pieces.append((max(a, a + end - pos), b))
+        pos += b - a
+    line.pieces = pieces
 
 
 def _is_page_number(t: str, pages: range | None) -> bool:
@@ -290,24 +295,50 @@ def _upper_share(t: str) -> float:
 def _own_citation(path: str | None) -> tuple[str, str] | None:
     """(Reporter year, first page) from a `path` like `2017_7_348_348` or `S_1975_1_169_201`."""
     m = _PATH.match(path or "")
-    return (m[1], m[2]) if m else None
+    return (m[1], m[3]) if m else None
 
 
 def _page_range(path: str | None) -> range | None:
     m = _PATH.match(path or "")
-    return range(int(m[2]), int(m[3]) + 1) if m and int(m[2]) <= int(m[3]) else None
+    return range(int(m[3]), int(m[4]) + 1) if m and int(m[3]) <= int(m[4]) else None
 
 
-_PATH = re.compile(r"(?:S_)?(\d{4})_\d+_(\d+)_(\d+)")
+_PATH = re.compile(r"(?:S_)?(\d{4})_(\d+)_(\d+)_(\d+)")
+
+
+def _is_stray_header(t: str, path: str | None, pages: range | None) -> bool:
+    """A page header line away from the top of a page: a "SUPREME COURT REPORTS" line with no
+    lowercase word, or a Reporter citation line of the Judgment's own year and volume with no page
+    number outside its pages (`[2017] 9 S.C.R.`)."""
+    m = _REPORTS.search(t)
+    if m and len(t) < 80 and not re.search(r"[a-z]{3}", t[: m.start()] + t[m.end() :]):
+        return True
+    own = _PATH.match(path or "")
+    if not own or not _SCR_LINE.fullmatch(t) or not re.search(_SCR, t, re.I):
+        return False
+    numbers = re.findall(r"\d+", t)
+    return numbers[:2] == [own[1], own[2]] and all(pages and int(n) in pages for n in numbers[2:])
 
 
 def _is_own_citation_line(t: str, own: tuple[str, str] | None) -> bool:
+    t = _read_page_number(t)
     if not _SCR_LINE.fullmatch(t) or _FOOTNOTE.match(t) or not re.search(_SCR, t, re.I):
         return False
     if own is None:
         return True
     numbers = re.findall(r"\d+", t)
     return own[0] in numbers and own[1] in numbers
+
+
+def _read_page_number(t: str) -> str:
+    """Read an OCR'd page number after `S.C.R.` as digits: `S.C.R. I 03` -> `S.C.R. 103`."""
+    m = re.search(_SCR, t, re.I)
+    if not m or not re.fullmatch(r"[\dIlJiOo ]+", t[m.end() :].strip()):
+        return t
+    return t[: m.end()] + " " + re.sub(r"\s", "", t[m.end() :].translate(_OCR_DIGITS))
+
+
+_OCR_DIGITS = str.maketrans("IlJiOo", "111100")
 
 
 def _drop_page_furniture(raw: str, pages: list[list[_Line]], path: str | None) -> None:
@@ -333,6 +364,8 @@ def _drop_page_furniture(raw: str, pages: list[list[_Line]], path: str | None) -
                 budget -= 1
             keep_to = i
         lines[:] = lines[keep_from:keep_to]
+    for lines in pages:
+        lines[:] = [ln for ln in lines if not _is_stray_header(ln.text(raw), path, page_range)]
     if pages:
         own = _own_citation(path)
         first = pages[0]
@@ -342,22 +375,57 @@ def _drop_page_furniture(raw: str, pages: list[list[_Line]], path: str | None) -
                 break
 
 
+def _alnum_share(t: str) -> tuple[int, float]:
+    """(characters, share of letters and digits) of a line, without spaces and brackets. Letters
+    and digits both count, so tables of dates and figures are not noise; combining marks count as
+    letters, for Hindi."""
+    chars = re.sub(r"[\s()\[\]{}]", "", t)
+    alnum = sum(unicodedata.category(c)[0] in "LNM" for c in chars)
+    return len(chars), alnum / len(chars) if chars else 1.0
+
+
+def _drop_symbol_noise(raw: str, pages: list[list[_Line]]) -> None:
+    """Drop blocks of OCR noise from a stamp or smudge: runs of lines that are mostly symbols and,
+    together, hold 8 or more characters not counting dot leaders and rules (so a table of contents
+    stays)."""
+    for lines in pages:
+        kept = []
+        for weak, run in itertools.groupby(lines, lambda ln: _is_weak(ln.text(raw))):
+            run = list(run)
+            n, share = _alnum_share(_FILL.sub("", " ".join(ln.text(raw) for ln in run)))
+            if not (weak and n >= 8 and share < 0.4):
+                kept += run
+        lines[:] = kept
+
+
+def _is_weak(t: str) -> bool:
+    return _alnum_share(t)[1] < 0.4 and not _PARA_NUMBER.fullmatch(t)
+
+
 def _drop_margin_letters(raw: str, pages: list[list[_Line]]) -> None:
+    # Glued margin letters on half the pages or more: a scan, not a born-digital text with
+    # headings such as `B Grounds of challenge` or illustrations such as `A concerts with B`.
+    raw_pages = raw.split(PAGE_BREAK)
+    glued = sum(bool(_GLUED_MARGIN.search(p)) for p in raw_pages) >= 0.5 * len(raw_pages)
+    lead, trail = (_LEAD_MARGIN_GLUED, _TRAIL_MARGIN_GLUED) if glued else (_LEAD_MARGIN, _TRAIL_MARGIN)
     for lines in pages:
         kept = []
         for line in lines:
             t = line.text(raw)
             if (_MARGIN_LINE.fullmatch(t) and not _PARA_NUMBER.fullmatch(t)) or not re.search(r"\w", t):
                 continue
-            m = _LEAD_MARGIN.match(t)
+            m = lead.match(t)
             if m:
-                _cut_front(line, m.end())
+                _cut(line, 0, m.end())
+            if glued:
+                for m in reversed(list(_MID_MARGIN_GLUED.finditer(line.text(raw)))):
+                    _cut(line, m.start(), m.end())
             t = line.text(raw)
-            m = _TRAIL_MARGIN.search(t)
+            m = trail.search(t)
             if m:
                 before = t[: m.start()].split()
                 if not before or before[-1].lower() not in _LABEL_WORDS:
-                    _cut_back(line, len(t) - m.start())
+                    _cut(line, m.start(), len(t))
             line.pieces = _strip(raw, line.pieces)
             if line.pieces:
                 kept.append(line)
@@ -370,6 +438,7 @@ def clean_text(raw: str, path: str | None = None) -> CleanText:
     on page 1 is taken as its own."""
     pages = _lines(raw)
     _drop_page_furniture(raw, pages, path)
+    _drop_symbol_noise(raw, pages)
     _drop_margin_letters(raw, pages)
 
     lengths = [len(ln.text(raw)) for lines in pages for ln in lines]
