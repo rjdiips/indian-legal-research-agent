@@ -16,6 +16,7 @@ nothing written. It is not a store; Postgres is the only store (ADR-0001, PRD §
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -92,12 +93,21 @@ def parse_decision_date(raw: str | None) -> dt.date | None:
 
 
 def load_judgments(parquet: Path, *, snapshot_id: str, source_uri: str) -> LoadResult:
+    return load_judgments_from([(parquet, source_uri)], snapshot_id=snapshot_id)
+
+
+def load_judgments_from(sources: Sequence[tuple[Path, str]], *, snapshot_id: str) -> LoadResult:
+    """Load several metadata parquets, given as `(file, source_uri)`, deduplicating on `path`
+    across all of them. Rows are read in the order given, which settles `scraped_at` ties."""
     columns = ", ".join(("path", "decision_date", "year", *_TEXT_COLUMNS))
+    rows: list[dict] = []
     con = duckdb.connect()
     try:
-        cursor = con.execute(f"SELECT {columns} FROM read_parquet(?)", [str(parquet)])
-        names = [d[0] for d in cursor.description]
-        rows = [dict(zip(names, r, strict=True)) for r in cursor.fetchall()]
+        for parquet, source_uri in sources:
+            cursor = con.execute(f"SELECT {columns} FROM read_parquet(?)", [str(parquet)])
+            names = [d[0] for d in cursor.description]
+            for r in cursor.fetchall():
+                rows.append({**dict(zip(names, r, strict=True)), "_source_uri": source_uri})
     finally:
         con.close()
 
@@ -132,7 +142,7 @@ def load_judgments(parquet: Path, *, snapshot_id: str, source_uri: str) -> LoadR
                 decision_date=decision_date,
                 reporter_year=row["year"],
                 snapshot_id=snapshot_id,
-                source_uri=source_uri,
+                source_uri=row["_source_uri"],
                 **{c: row[c] for c in _TEXT_COLUMNS},
             )
         )

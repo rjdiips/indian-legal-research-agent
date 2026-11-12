@@ -6,6 +6,7 @@ Ported from the data-gate scripts `s3_list.py` and `polite_fetch.py`.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import time
 import xml.etree.ElementTree as ET
@@ -91,12 +92,19 @@ def list_objects(
             return objects
 
 
+class ManifestMismatch(RuntimeError):
+    """A download's size or ETag disagrees with the Snapshot manifest."""
+
+
 @dataclass(frozen=True)
 class FetchResult:
     url: str
     path: Path
-    status: int  # 200 downloaded, 304 the local copy is current
+    status: int  # 200 downloaded, 206 resumed, 304 the local copy is current
     etag: str | None
+    resumed_from: int = 0  # bytes already on disk when a 206 resume started
+    bytes_received: int = 0
+    requested: bool = True  # False: the local copy matched the manifest, so nothing was sent
 
 
 class PoliteFetcher:
@@ -104,41 +112,90 @@ class PoliteFetcher:
 
     A `<file>.meta.json` sidecar keeps the ETag and Last-Modified of each download, so a
     rerun sends a conditional GET and skips unchanged files (HTTP 304). Downloads go to a
-    temporary file first, so an interrupted fetch never leaves a half-written file behind.
+    `<file>.part` first, so the destination is never half-written. If a download breaks off,
+    the `.part` stays, and the next fetch asks for the rest (`Range` plus `If-Range` on the
+    ETag): a 206 appends, a 200 (the object changed) starts again.
+
+    With `expected` (the object as listed in the Snapshot manifest), a local copy with the
+    same ETag and size is not requested at all, and a download whose ETag or size differs
+    raises `ManifestMismatch`. With `log`, every fetch is appended to a JSONL fetch log.
     """
 
-    def __init__(self, client: httpx.Client, *, pacer: Pacer | None = None) -> None:
+    def __init__(self, client: httpx.Client, *, pacer: Pacer | None = None, log: Path | None = None) -> None:
         self._client = client
         self._pacer = pacer or Pacer()
+        self._log = Path(log) if log else None
 
-    def fetch(self, url: str, dest: Path) -> FetchResult:
-        dest = Path(dest)
+    def fetch(self, url: str, dest: Path, *, expected: S3Object | None = None) -> FetchResult:
+        record: dict = {"url": url, "fetched_at": dt.datetime.now(dt.UTC).isoformat(), "dest": str(dest)}
+        try:
+            result = self._fetch(url, Path(dest), expected)
+        except Exception as e:
+            record.update(status=None, error=repr(e))
+            raise
+        else:
+            record.update(
+                status=result.status,
+                etag=result.etag,
+                bytes=result.bytes_received,
+                resumed_from=result.resumed_from,
+                requested=result.requested,
+            )
+            return result
+        finally:
+            if self._log:
+                self._log.parent.mkdir(parents=True, exist_ok=True)
+                with self._log.open("a") as f:
+                    f.write(json.dumps(record) + "\n")
+
+    def _fetch(self, url: str, dest: Path, expected: S3Object | None) -> FetchResult:
         meta_path = dest.with_name(dest.name + ".meta.json")
+        part = dest.with_name(dest.name + ".part")
         headers = {"User-Agent": USER_AGENT}
-        meta: dict = {}
-        if dest.exists() and meta_path.exists():
-            meta = json.loads(meta_path.read_text())
+        meta: dict = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+        offset = 0
+        if expected and dest.exists() and meta.get("etag") == expected.etag:
+            if dest.stat().st_size != expected.size:
+                raise ManifestMismatch(
+                    f"{dest}: size {expected.size} in the manifest, {dest.stat().st_size} on disk; "
+                    "delete it to download again"
+                )
+            return FetchResult(url, dest, 304, expected.etag, requested=False)
+        if dest.exists():
             if meta.get("etag"):
                 headers["If-None-Match"] = meta["etag"]
             if meta.get("last_modified"):
                 headers["If-Modified-Since"] = meta["last_modified"]
+        elif part.exists() and meta.get("etag"):
+            offset = part.stat().st_size
+            headers["Range"] = f"bytes={offset}-"
+            headers["If-Range"] = meta["etag"]
 
         self._pacer.wait()
         with self._client.stream("GET", url, headers=headers, timeout=60, follow_redirects=True) as r:
             if r.status_code == 304:
                 return FetchResult(url, dest, 304, meta.get("etag"))
             r.raise_for_status()
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            tmp = dest.with_name(dest.name + ".part")
-            try:
-                with tmp.open("wb") as f:
-                    for chunk in r.iter_bytes(65536):
-                        f.write(chunk)
-                tmp.replace(dest)
-            finally:
-                tmp.unlink(missing_ok=True)
             etag = r.headers.get("etag")
-            meta_path.write_text(
-                json.dumps({"url": url, "etag": etag, "last_modified": r.headers.get("last-modified")})
-            )
-            return FetchResult(url, dest, 200, etag)
+            resumed = r.status_code == 206
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            # Record the ETag before the body, so a broken-off `.part` can be resumed.
+            meta = {"url": url, "etag": etag, "last_modified": r.headers.get("last-modified")}
+            meta_path.write_text(json.dumps(meta))
+            if expected and etag != expected.etag:
+                part.unlink(missing_ok=True)
+                raise ManifestMismatch(
+                    f"{url}: ETag {etag} does not match the manifest's {expected.etag}; "
+                    "the object changed since the Snapshot was taken, rerun to take a fresh one"
+                )
+            received = 0
+            with part.open("ab" if resumed else "wb") as f:
+                for chunk in r.iter_bytes():  # as received: a chunk size would hold back bytes
+                    f.write(chunk)
+                    received += len(chunk)
+            if expected and part.stat().st_size != expected.size:
+                got = part.stat().st_size
+                part.unlink()
+                raise ManifestMismatch(f"{url}: size {expected.size} in the manifest, {got} downloaded")
+            part.replace(dest)
+            return FetchResult(url, dest, r.status_code, etag, offset if resumed else 0, received)
