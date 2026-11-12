@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| **Status** | Draft; data gate passed on 2026-11-06. The owner has committed to publishing the MCP server (§7) |
-| **Version** | 0.6 |
+| **Status** | Draft; data gate passed on 2026-11-06. Publishing the MCP server (§7) is optional, after the main build |
+| **Version** | 0.7 |
 | **Date** | 2026-11-11 |
 | **Owner** | Rajdeep Sen |
 | **Rank** | 3 |
@@ -18,7 +18,9 @@ Finding a relevant judgment isn't enough, because a reranker can surface a passa
 
 The paid Indian Kanoon API is replaced by free [AWS Open Data judgment sets](https://registry.opendata.aws/indian-supreme-court-judgments/). The project works without hand-labelled relevance data, because judgments' own citations supply test cases.
 
-The Supreme Court judgments MCP server is also published as a public, installable package listed in the official MCP registry, so anyone can use it from their own MCP client. Searches found no MCP server for Indian legal data, so it fills a real gap.
+The Supreme Court judgments MCP server could later be published as a public package listed in the official MCP registry. Searches found no MCP server for Indian legal data, so it would fill a real gap. This is optional and comes after the main build.
+
+The whole app uses one store: Postgres 17 with pgvector, run in Docker ([ADR-0001](adr/0001-postgres-in-docker-single-store.md)).
 
 ## 2. Goals and non-goals
 
@@ -29,8 +31,8 @@ The Supreme Court judgments MCP server is also published as a public, installabl
 | G3 | Flag overruled law | Precision ≥ 90% for "overruled" on a reviewed sample, with recall reported. The basic pattern starts at 54% |
 | G4 | Ground answers | 100% of quoted passages match the stored text exactly. For OCR judgments that means the OCR text, not the page image |
 | G5 | Abstain sensibly | Answer quality rises as coverage falls on the abstention curve |
-| G6 | Stay free | Zero cash cost on either machine |
-| G7 | Publish the MCP server | Package on PyPI, listed in the official MCP registry. A new user can install it with one command and run a search on a CPU-only machine |
+| G6 | Stay free | Zero cash cost on either machine with local inference. The optional OpenCode backups, Go for the LLM and hosted Jev for decisions ([§8](#llm-backends)), are the only paid services, and nothing depends on them |
+| G7 | Publish the MCP server (optional) | Package on PyPI, listed in the official MCP registry. Not required for the project to be done |
 
 **Non-goals:** legal advice; replacing a lawyer or commercial citator; all 15.9M High Court PDFs; regional-language retrieval in the MVP; live case status; a public legal-advice product; a hosted server, since hosting costs money.
 
@@ -51,7 +53,7 @@ The Supreme Court judgments MCP server is also published as a public, installabl
 | High Courts, later | [AWS Open Data](https://registry.opendata.aws/indian-high-court-judgments/) | CC-BY-4.0; reported about 15.9M PDFs, so one court at most |
 | Statutes | [Annotated Central Acts](https://zenodo.org/records/5088102) | Working source: 858 acts, up to 2020 |
 | Statutes, optional | [Nyaykosh](https://negd.gov.in/our_projects/nyaykosh-law-as-code/) | Responds without a login, but lists only four instruments, so it's a narrow addition. API not tested |
-| Loader, optional | [`bharat-courts`](https://pypi.org/project/bharat-courts/) | May simplify AWS access |
+| Loader, optional | [`bharat-courts`](https://pypi.org/project/bharat-courts/) | Not used for the Supreme Court corpus; a candidate for the High Court stage ([ADR-0002](adr/0002-own-httpx-downloader-not-bharat-courts.md)) |
 
 Credit the data source to meet CC-BY-4.0. Read each dataset's current licence before release. The data gate couldn't determine whether the maintainers can license everything scraped from `scr.sci.gov.in`, so check this, with legal advice if needed, before any public release.
 
@@ -139,6 +141,8 @@ Train the answer-or-abstain model on earlier cases where a known cited authority
 
 The LLM carries out agent reasoning and writes answers, but these models handle the decisions.
 
+The decision model runs locally when possible, with hosted Jev 1.13 as the backup. See [§8, Decision model backends](#decision-model-backends).
+
 `unknown` is the required result when evidence is missing. Never present the absence of a negative citation as proof that a case is good law.
 
 ## 7. Architecture
@@ -174,6 +178,10 @@ The MVP runs these agents in sequence. Parallel researchers and citation checker
 3. **Graph expansion:** Add closely linked authorities and later treatment events.
 4. **Reranking:** Rerank up to 50 candidates with `bge-reranker-v2-m3`, and limit passages per judgment for diversity.
 5. **Corrective loop:** Grade evidence, rewrite weak queries, then abstain.
+
+### Store
+
+One Postgres 17 database with pgvector holds everything: corpus, citation graph, treatments, vectors, keyword indexes and LangGraph checkpoints. It runs from the `pgvector/pgvector:pg17` image via `docker-compose.yml` (`make db-up`), and the schema comes from plain numbered SQL in `migrations/`. Don't add a second store such as DuckDB or SQLite. The loader may still use DuckDB to read the source Parquet files, because that only reads input and stores nothing ([ADR-0001](adr/0001-postgres-in-docker-single-store.md)).
 
 ### Graph tables
 
@@ -217,9 +225,9 @@ CREATE TABLE treatments (
 
 All tools are read-only and enforce `as_of_date`. This replaces the [existing Indian Kanoon MCP server](https://pypi.org/project/indian-kanoon-mcp/), and it teaches more than wrapping an API.
 
-### Published MCP server
+### Published MCP server (optional)
 
-The owner will publish the Supreme Court judgments server. The project's own agents use the published package, so there's one codebase rather than an internal copy and a public fork.
+Publishing is optional and comes after §12's main milestones. The project's own agents use this package either way, so there's one codebase rather than an internal copy and a public fork. The decisions below apply only if it is published.
 
 | Item | Decision |
 |---|---|
@@ -229,7 +237,7 @@ The owner will publish the Supreme Court judgments server. The project's own age
 | Transport | `stdio` by default; Streamable HTTP for anyone who wants to host it themselves. No hosted instance |
 | Spec | Current MCP spec at release, using the official Python SDK. Every tool marked read-only through tool annotations |
 | Data | The package ships no judgments. On first run, `init` downloads the metadata Parquet and selected years from the public AWS bucket, which needs no account, then builds a local index. The user chooses year ranges to control disk use |
-| Lite and full modes | Lite (default): SQLite or DuckDB metadata plus BM25, with no GPU or model download. Full (optional extra): adds `bge-m3` dense search and `bge-reranker-v2-m3` |
+| Store | Same Postgres as the app, so users need Postgres too, for example via the project's Docker setup. A lighter package-only store isn't planned; revisit only if publishing goes ahead ([ADR-0001](adr/0001-postgres-in-docker-single-store.md)). `bge-m3` dense search and `bge-reranker-v2-m3` stay an optional `full` extra |
 | Citation graph | Built locally by the same deterministic extractor. Treatment labels in the package come from patterns only, and are marked `source: pattern`. Typed-model labels stay internal unless the derived data is cleared for release |
 | Attribution | Every result includes the original source URI and a CC-BY-4.0 credit line for the dataset |
 
@@ -261,17 +269,57 @@ Most data comes as a bulk download, so scraping is the project's weak spot. Add 
 
 | Job | `gpu4090` | `laptop4060` |
 |---|---|---|
+| LLM | Local: the shared vLLM model. Backup: OpenCode Go (see [LLM backends](#llm-backends)) | Local: a small model on the GPU when memory allows. Backup: OpenCode Go |
 | Parse and citation extraction | CPU | CPU |
 | Embedding | CPU; possibly over several nights | GPU; faster |
 | Reranking | CPU, as a batch | GPU |
-| OCR, if needed | Slow CPU | GPU, one job at a time |
-| Typed decision model | CPU; measure latency, then size batch runs | GPU, sharing memory with retrieval; no OpenRouter quota used |
+| OCR | Not planned: every PDF has an embedded text layer, which is used as is. About 80% of judgments are scans whose layer is existing OCR; `text_quality` marks them | Same |
+| Typed decision model | Local: CPU; measure latency, then size batch runs. Backup: hosted Jev 1.13 (see [Decision model backends](#decision-model-backends)) | Local: GPU, sharing memory with retrieval. Backup: hosted Jev 1.13 |
 | Answer-or-abstain classifier | CPU | CPU |
-| Agent evaluation | Overnight on the shared model | About 5–10 questions a day on OpenRouter |
+| Agent evaluation | Overnight on the shared model | On the local model if it's good enough; otherwise on OpenCode Go within its allowance |
 
 Retrieval and treatment evaluations use no LLM, so they can run across thousands of cases on either machine, subject to measured decision-model latency. Keep agent evaluation to about 50–100 questions.
 
+### LLM backends
+
+Use local inference whenever possible. Use OpenCode only when local isn't available. The same rule applies to the LLM and to the typed decision model, which use different OpenCode services.
+
+| Order | Backend | When | Cost |
+|---|---|---|---|
+| 1 | Local | `gpu4090`: the shared vLLM model, following the shared-4090 rules. `laptop4060`: a small local model, run one job at a time so it doesn't compete with embedding and reranking for the 8 GB of VRAM | Free |
+| 2 | OpenCode Go, a chat model from the [Go list](https://opencode.ai/docs/console/go/) | Local is unavailable: the 4090 model isn't listed at `GET /v1/models`, the server is busy with FinAssure, or the 4060 can't fit a useful model | Included in the $10/month Go subscription |
+| 3 | OpenRouter free tier | Optional zero-cost fallback if Go is dropped | Free, about 50 requests a day |
+
+**About OpenCode Go:**
+- The project must still work end to end without it, so G6 holds for the default setup. Go is an optional paid backup.
+- Pick one Go model with 0-day retention and no training, such as a Qwen, GLM or Kimi model, and record its ID in local `.env`. Check the live list at `https://opencode.ai/inference/go/v1/models`.
+- Limits are dollar allowances per model, not request counts: the 5-hour limit is 20% of the monthly allowance, the weekly limit 50%. Each response reports what it counted (`opencode.allowance`). Keep **Extra Usage** off, so hitting the limit stops calls instead of charging credit.
+- Go is meant for coding-agent traffic and is monitored for abuse. Send a project-specific user agent, such as `indian-legal-research-agent/0.1`, and a stable `x-opencode-session` header per research run. Run large batches locally, not on Go.
+- Check privacy terms per model: most Go models are listed as 0-day retention and no training. Don't enable the "train on request data" models (Muse Spark Contributor, Iceman Contributor Free). Send public data only, as with OpenRouter.
+- Route Go through LiteLLM like every other backend. Only `LLM_BASE_URL`, `LLM_MODEL` and the key change.
+- The response cache and evaluation records store the exact backend and model per response. Don't switch backends in the middle of an evaluation run.
+
+### Decision model backends
+
+Jev 1.13 is a TypeSafe AI "System One" typed decision model, hosted on OpenCode. It answers `noul`, `choice` and `score` questions about a `state` and returns values and probabilities, which is what §6 needs. See the [OpenCode Console models docs](https://opencode.ai/docs/console/models/) and the [TypeSafe AI docs](https://docs.typesafe.ai/).
+
+| Order | Backend | When | Cost |
+|---|---|---|---|
+| 1 | Local open-weights typed decision model ([shared rules](../../project-prds/README.md#typed-decision-model-rules); not chosen yet) | Default whenever a local model is available and fits | Free |
+| 2 | Hosted `jev-1.13-free` | No usable local model, while the free tier lasts | Free for a limited time |
+| 3 | Hosted `jev-1.13` | No usable local model, and the free tier has ended or is unavailable | $0.042 per 1M input tokens, output free, pay-as-you-go |
+
+**About hosted Jev:**
+- This is a project-specific exception to the shared rule that the decision model "must run locally on open weights". The exception applies only as a backup, and the project must still run on a local model.
+- Jev is on the Console's pay-as-you-go model list, not the Go plan list. Expect `jev-1.13` to be billed from Console credit, not the Go allowance. Check the Console Activity page after the first call to confirm.
+- The endpoint is `https://opencode.ai/inference/systemone/v1/systemone`, with the Console API key. It isn't OpenAI-compatible, so it doesn't go through LiteLLM. It needs its own adapter in `src/legal_agent/decisions/`, next to `local.py` and `fake.py`, behind the same interface.
+- One request can carry several questions about the same `state`, and Jev evaluates them in parallel. Use that to batch passage relevance and claim support.
+- OpenCode publishes no retention or training terms for Jev. Send public judgment text only, and check the terms before any non-public input.
+- Treat Jev probabilities as uncalibrated, as with any decision model. Hosted and local models are different models, so record which one produced each decision, and don't mix them within one evaluation run.
+
 Set the embedding plan from the measured corpus: 38,392 judgments and 22.69 GB of English tars. Use quantised vectors if storage or memory is tight.
+
+Estimated full English corpus footprint is about 45–50 GB with float32 vectors and raw tars kept. This is an estimate, not a measurement. If disk becomes tight, measure a sample first, then quantise vectors in pgvector (`halfvec`) or drop raw tars after parsing.
 
 Parse `bench_size` from the PDF, since only 12.7% of `judge` metadata values contain more than one name.
 
@@ -326,7 +374,7 @@ Report results by decade, or limit the headline result to 1990 onward and disclo
 | Verifier | Altered quotes are rejected |
 | Graph | Retry and budget limits; abstain path |
 | Replay | Stored responses reproduce an answer |
-| Integration | `testcontainers` for Postgres; recorded LLM responses |
+| Integration | Throwaway Postgres via `testcontainers`, so Docker must be running; recorded LLM responses |
 
 ## 12. Milestones
 
@@ -345,10 +393,10 @@ Report results by decade, or limit the headline result to 1990 onward and disclo
 | 12 | Answer-or-abstain classifier and agent evaluation |
 | 13 | API and simple research UI |
 | 14 | README, results and limits |
-| 15 | Package the MCP server: lite mode, `init` command, contract tests, README and client snippets |
-| 16 | Publish to PyPI and the MCP registry; test a fresh install on a clean machine |
+| 15, optional | Package the MCP server: `init` command, contract tests, README and client snippets |
+| 16, optional | Publish to PyPI and the MCP registry; test a fresh install on a clean machine |
 
-**Done when:** a reviewer can ask a question as of a date, inspect pinpoint citations and validity warnings, see an abstention case, and read the retrieval and treatment reports. They can also install the published MCP server with one command and search judgments from their own client.
+**Done when:** a reviewer can ask a question as of a date, inspect pinpoint citations and validity warnings, see an abstention case, and read the retrieval and treatment reports. Days 15–16 aren't needed for this.
 
 The parallel research phase in §15 starts only after these milestones are done.
 
@@ -368,7 +416,7 @@ The parallel research phase in §15 starts only after these milestones are done.
 | Personal details in judgments | Query original public data only; don't publish derived personal profiles; exclude sensitive cases from demos |
 | Output treated as legal advice | Prominent notice; evidence-first UI; abstention |
 | Published server users trust pattern-only treatment labels | Label source and confidence on every result; `unknown` instead of "good law"; disclaimer in the README and tool descriptions |
-| First-run download too large for users | Year-range selection in `init`; lite mode needs no models |
+| First-run download too large for users | Year-range selection in `init`; dense models are an optional extra |
 | Published package goes unmaintained | Pin dependencies; index format version; state the support level in the README |
 
 ## 14. Open questions
@@ -408,7 +456,7 @@ supervisor -> Send per issue: [researcher -> rerank] x N -> join (reducer merges
 
 ### Limits
 
-- **Speed:** The 4090 rules allow at most 2 parallel LLM calls, and OpenRouter allows 20 requests a minute and 50 a day. In the `gpu4090` profile the reranker runs on CPU, so branches compete for it. The gain is in structure and context size, not latency.
+- **Speed:** The 4090 rules allow at most 2 parallel LLM calls, OpenCode Go has a 5-hour dollar allowance, and OpenRouter allows 20 requests a minute and 50 a day. In the `gpu4090` profile the reranker runs on CPU, so branches compete for it. The gain is in structure and context size, not latency.
 - **Budget:** Give each worker a token and call budget. The supervisor caps N issues and M authorities, so a vague question can't fan out into many calls.
 - **Checkpoints:** Each worker writes to its own keyed slot in the merged state. A resume after an interrupt must not rerun finished branches. Add a test for this.
 

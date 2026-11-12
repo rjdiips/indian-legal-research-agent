@@ -1,1 +1,1 @@
-"""Lite-mode BM25 index (Day 6)."""
+"""BM25 index (Day 6)."""

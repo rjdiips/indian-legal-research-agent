@@ -5,7 +5,7 @@ Built from [PRD-004](docs/PRD-004-Indian-Legal-Research-Agent.md). Skeleton only
 ## Layout
 
 ```text
-packages/indian-sc-judgments-mcp/   published MCP server (PyPI + MCP registry)
+packages/indian-sc-judgments-mcp/   MCP server package (publishing optional)
   src/indian_sc_judgments_mcp/
     corpus/       download, snapshot, loader, cleaning, parsing
     citations/    extraction, resolution, crosswalk, short names and (supra)
@@ -29,6 +29,8 @@ data/  reports/   local only; not committed
 ```
 
 ## Setup
+
+Needs Docker: Postgres 17 with pgvector is the app's only database and runs in a container ([ADR-0001](docs/adr/0001-postgres-in-docker-single-store.md)). Integration tests also start a throwaway Postgres container.
 
 ```bash
 cp .env.example .env

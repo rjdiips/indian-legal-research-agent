@@ -1,4 +1,4 @@
-"""Package settings: data home, lite/full mode, index format version."""
+"""Package settings: data home and index format version."""
 
 from __future__ import annotations
 

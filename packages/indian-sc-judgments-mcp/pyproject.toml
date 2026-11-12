@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Full mode: bge-m3 dense search and bge-reranker-v2-m3 (PRD §7, "Lite and full modes")
+# Optional dense search and reranking: bge-m3 and bge-reranker-v2-m3 (PRD §7)
 full = ["sentence-transformers>=3.0"]
 
 [build-system]
