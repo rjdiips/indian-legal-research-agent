@@ -21,9 +21,9 @@ What is removed:
 - the Judgment's own citation line on its first page (`[2017] 7 S.C.R. 348`).
 
 A line break is kept (as `"\\n"`) before a line that starts with a number, letter or roman
-numeral marker such as `2.` or `(iv)`, around a `JUDGMENT` or `ORDER` heading, and after a
-short line ending a sentence, so paragraph
-markers stay at line start. Footnotes, side notes and the headnote stay.
+numeral marker such as `2.` or `(iv)` (or `2)` after a sentence end), around a `JUDGMENT` or
+`ORDER` heading, and after a short line ending a sentence, so paragraph markers stay at line start.
+Footnotes, side notes and the headnote stay.
 """
 
 from __future__ import annotations
@@ -113,6 +113,9 @@ _MARKER_START = re.compile(
     r"(?:[\dIl](?: ?[\dIlOo]){0,2}\s*[.,](?!\d)|\(?[ivxlIVXL]{1,5}\)|\(?[a-z]\)|\(\d{1,3}\))"
 )
 _PARA_NUMBER = re.compile(r"\d{1,3}\s*[.,]|\(?[ivxlIVXL]{1,5}\)|\(?[a-z]\)|\(\d{1,3}\)")
+# `12)` is also how a wrapped bracket ends (`(para\n51)`, `(Pg.\n183)`), so it marks a paragraph
+# only after a sentence end with no bracket left open.
+_CLOSE_NUMBER = re.compile(r"\d{1,3}\)")
 # A heading line opening the body (`JUDGMENT`, `O R D E R`), kept on a line of its own.
 _HEADING = re.compile(r"(?:J\s?U\s?D\s?G\s?M\s?E\s?N\s?T|O\s?R\s?D\s?E\s?R|Judgment|Order)\s*:?")
 # Dot leaders, rules, ellipses and masks (`......`, `____`, `* * *`, `××××`): left out when
@@ -465,6 +468,7 @@ def clean_text(raw: str, path: str | None = None) -> CleanText:
 
     prev: _Line | None = None
     prev_text = ""
+    prev_starts = True  # whether `prev` begins a line of cleaned text
     page_seen = -1
     for lines in pages:
         for line in lines:
@@ -476,10 +480,13 @@ def clean_text(raw: str, path: str | None = None) -> CleanText:
                     if not joined:  # drop the hyphen: it was the last copied character
                         _uncopy_last(out, segments)
                         size -= 1
-                elif _PARA_NUMBER.fullmatch(prev_text):
+                elif _PARA_NUMBER.fullmatch(prev_text) or prev_starts and _CLOSE_NUMBER.fullmatch(prev_text):
                     insert(" ")
                 elif (
                     _MARKER_START.match(t)
+                    or _CLOSE_NUMBER.match(t)
+                    and _SENTENCE_END.search(prev_text)
+                    and prev_text.count("(") <= prev_text.count(")")
                     or _HEADING.fullmatch(t)
                     or _HEADING.fullmatch(prev_text)
                     or _SENTENCE_END.search(prev_text)
@@ -488,12 +495,13 @@ def clean_text(raw: str, path: str | None = None) -> CleanText:
                     insert("\n")
                 else:
                     insert(" ")
+            starts = prev is None or out[-1] == "\n"
             while page_seen < line.page:
                 page_seen += 1
                 page_starts[page_seen] = size
             for a, b in pieces:
                 copy(a, b)
-            prev, prev_text = line, t
+            prev, prev_text, prev_starts = line, t, starts
     while page_seen < len(pages) - 1:
         page_seen += 1
         page_starts[page_seen] = size

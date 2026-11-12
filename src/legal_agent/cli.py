@@ -142,6 +142,8 @@ def _extract_text(conn: psycopg.Connection, home: Path, years: tuple[int, ...]) 
         print(f"  {name:<24}{value}")
     for name in report.missing_from_tar:
         print(f"  in index, not in tar: {name}", file=sys.stderr)
+    for path in report.cross_year_duplicates:
+        print(f"  in two years' tars, counted once: {path}", file=sys.stderr)
     return 0
 
 

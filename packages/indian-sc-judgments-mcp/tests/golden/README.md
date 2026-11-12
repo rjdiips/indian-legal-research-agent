@@ -9,3 +9,4 @@ exactly as `corpus/raw_text.py` writes it. Named `<path>.txt`.
   `2023_4_585_595` (`born_digital`): ticket 03's extraction of the real corpus.
 - `2014_14_185_186` (`ocr`): ticket 09's example, from the real corpus; a stamp on page 2 comes out
   as a block of symbol lines, and its margin letters are misread (`h`, `s·`, `B Nidhi Jain`).
+- `2025_4_2742_2752` (`born_digital`): ticket 07, paragraphs numbered `1)` on a line of their own.

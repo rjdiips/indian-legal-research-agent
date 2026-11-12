@@ -89,6 +89,78 @@ def test_bench_size_reads_common_coram_forms(coram, size):
     assert bench_size(f"OCTOBER 16, 2015\n{coram}\nService Law").size == size
 
 
+@pytest.mark.parametrize(
+    ("coram", "size"),
+    [
+        ("[T. S. THAKUR, CJJ, DR. D. Y. CHANDRACIIUD AND L. NAGESWARA RAO, .JJ.J", 3),
+        ("[DIPAK MISRA, CJJ, R. BANUMATHI AND ASHOK BHUSHAN, JJ.)", 3),
+        ("[DIPAK MISRA, CJT, A. K. SIKRI, A. M. KHANWILKAR, DR. D. Y. CHANDRACHUD AND ASHOK BHUSHAN, "
+         "JJ.]", 5),
+        ("[Dr Dnhananjaya Y Chandrachud,* CJl, 8 R Gavai, Surya Kant, J B Pardiwala and Manoj Misra, "
+         "JJ.]", 5),
+        ("[DIPAK MISRA CJI, AMITAVA ROY AND A. M. KHANWILKAR, JJ.]", 3),
+    ],
+)  # fmt: skip
+def test_ocr_forms_of_cji_are_a_title_not_a_judge(coram, size):
+    assert bench_size(f"FEBRUARY 16, 2018 {coram} Inter-State Water Disputes:").size == size
+
+
+# First pages from the real corpus where a one-judge block comes before the bench's coram.
+@pytest.mark.parametrize(
+    ("page", "size", "evidence"),
+    [
+        (  # 2018_5_1127_1150: a connected case's title carries its author
+            "STATE OF KARNATAKA BY ITS CHIEF SECRETARY v. STATE OF T. N. BY ITS CHIEF SECRETARY "
+            "[DIPAK MISRA, CJI] STATE OF TAMIL NADU v.\nP. K. SINHA AND ANR.\n(Contempt Petition (Civil) "
+            "No. 898 of 2018 In Civil Appeal No. 2453 of 2007) MAY 18, 2018 [DIPAK MISRA, CJI, "
+            "A. M. KHANWILKAR AND DR. D.Y. CHANDRACHUD, JJ.] Inter-State Water Disputes:",
+            3,
+            "[DIPAK MISRA, CJI, A. M. KHANWILKAR AND DR. D.Y. CHANDRACHUD, JJ.]",
+        ),
+        (  # 2017_1_158_260: OCR read the CJI's title as the block's end
+            "(Civil Appeal No. 37of1992) JANUARY 02, 2017 [T. S. THAKUR, C.J.l., MADAN B. LOKUR, "
+            "S. A. BOBDE, ADARSH KUMAR GOEL, UDAY UMESH LALIT, DR. D.Y. CHANDRACHUD AND "
+            "L. NAGESWARA RAO, JJ.) Representation of the People Act, 1951:",
+            7,
+            "[T. S. THAKUR, C.J.l., MADAN B. LOKUR, S. A. BOBDE, ADARSH KUMAR GOEL, UDAY UMESH LALIT, "
+            "DR. D.Y. CHANDRACHUD AND L. NAGESWARA RAO, JJ.)",
+        ),
+        (  # 2017_9_797_1158: the coram ends `JJ,j`; the headnote names each opinion's author
+            "AUGUST 22, 2017 [JAGDISH SINGH KHEHAR, CJI, KURIAN JOSEPH, R. F. NARIMAN, UDAY .UMESH LALIT "
+            "AND S. ABDUL NAZEER, JJ,j MAJORITY OPINION Muslim Law: Talaq-e-biddat - set aside. "
+            "(Per Court) Art.13(1). (Per Nariman, J.) Muslim Law: Sunnis - Discussed.",
+            5,
+            "[JAGDISH SINGH KHEHAR, CJI, KURIAN JOSEPH, R. F. NARIMAN, UDAY .UMESH LALIT AND "
+            "S. ABDUL NAZEER, JJ,j",
+        ),
+    ],
+)  # fmt: skip
+def test_a_one_judge_block_gives_way_to_a_later_bench_block(page, size, evidence):
+    assert bench_size(page) == Bench(size, evidence)
+
+
+# From the real corpus (mostly 2017 OCR): the bracket closing a `JJ.` block read as another mark.
+@pytest.mark.parametrize(
+    ("coram", "size"),
+    [
+        ("[DIPAK MISRA AND R. BANUMATHI, JJ.I", 2),
+        ("[DIPAK MISRA AND A.M. KHANWILKAR, JJ.f", 2),
+        ("[KURIAN JOSEPH AND R. BANUMATHI, JJ.[", 2),
+        ("[JAGDISH SINGH KHEHAR, CJI, DR. D.Y. CHANDRACHUD AND L. NAGESWARA RAO, JJ.t", 3),
+        ("(ANIL R. DAVE, KURIAN JOSEPH AND AMITAVA ROY, JJ.(", 3),
+        ("[M.Y. EQBALANDAMITAVA ROY, JJ.]", 2),  # OCR ran AND into both names
+        ("[SHIVA KIRTI SINGH A~D R. BANUMATHI, JJ.]", 2),
+        ("[RANJAN GOGOi ~ND ASIIOK BHUSIIAN, JJ.)", 2),
+    ],
+)  # fmt: skip
+def test_bench_size_reads_ocr_damaged_coram_blocks(coram, size):
+    assert bench_size(f"FEBRUARY 14, 2017 {coram} Penal Code, 1860 - ss. 300").size == size
+
+
+def test_an_opinion_author_line_is_not_a_coram():
+    assert bench_size("Discussed. (Per Nariman, J.) Muslim Law: Sunnis - Discussed.") == Bench(None, None)
+
+
 def test_bench_size_is_never_a_default_of_one():
     assert bench_size("No coram block on this page at all.") == Bench(None, None)
 
@@ -119,6 +191,7 @@ def test_each_paragraphs_text_is_its_slice_of_cleaned_text(path):
         ("2023_1_1105_1110", 18, "(1) The relief sought for in the transfer petition"),
         ("2023_4_585_595", 27, "(1) Applications for intervention and impleadment are allowed."),
         ("2024_4_598_605", 10, "1. The Appellant-State of Madhya Pradesh"),
+        ("2025_4_2742_2752", 25, "1) Leave granted."),  # `1)` alone on its line, text on the next
     ],
 )
 def test_golden_numbered_paragraphs(path, count, first):
@@ -167,6 +240,39 @@ def test_an_ocr_misread_paragraph_number_is_taken():
     paras = {p.number: p for p in paragraphs(cleaned("2016_4_157_170").text)}
 
     assert paras[10].text.startswith("I 0. Even though there were ten participants")
+
+
+def test_a_bracket_numbered_paragraph_after_a_full_line_and_a_margin_letter_is_taken():
+    # From 2015_5_542_578 (renumbered): its `7)` was joined onto paragraph 6's last line, so 6 ran
+    # 47,654 characters and swallowed paragraphs 7 to the end.
+    raw = (
+        "JUDGMENT\nA. K. SIKRI, J.\n1) Leave granted.\n"
+        "2) Simultaneously, second set of notifications were issued \n"
+        "for acquisition of land for development of residential urban \n"
+        "estate to adjust oustees of the above said road. According \n"
+        "necessary to acquire the land for development of residential \n"
+        "urban estate to rehabilitate such oustees. \nD \n"
+        "3) Insofar as first notification is concerned, it was \n"
+        "challenged on various grounds including the plea that the said \n"
+    )
+    paras = paragraphs(clean_text(raw).text)
+
+    assert [p.number for p in paras] == [1, 2, 3]
+    assert paras[-1].text.startswith("3) Insofar as first notification")
+
+
+@pytest.mark.parametrize("bracket", ["(para \n51)", "(Pg. \n183)"])  # 2016_5_884_892, 2022_12_761_796
+def test_a_wrapped_bracket_ending_in_a_number_does_not_hide_the_next_paragraph(bracket):
+    raw = (
+        "JUDGMENT\nDIPAK MISRA, J.\n1. Leave granted.\n"
+        "2. The applicant moved this Court. The facts are as under. It was observed that \n"
+        f'the judgment adversely affects the petitioner." {bracket} \n'
+        "3. The said jurisdiction because of its very nature has attracted the terminology \n"
+    )
+    paras = paragraphs(clean_text(raw).text)
+
+    assert [p.number for p in paras] == [1, 2, 3]
+    assert paras[1].text.endswith(" ".join(bracket.split()))
 
 
 def test_a_short_numbered_list_deep_in_an_unnumbered_judgment_is_not_paragraphs():

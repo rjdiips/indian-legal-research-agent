@@ -36,9 +36,15 @@ def _judgment(path: str, snapshot_id: str) -> Judgment:
 def corpus(conn, tmp_path):
     """A migrated store holding the mini tar's Judgments (all but one), and the tar in the data home,
     listed in the Snapshot."""
+    return _stage(conn, tmp_path, [YEAR])
+
+
+def _stage(conn, tmp_path, years):
     migrate(conn, MIGRATIONS_DIR)
-    index_key, tar_key = english_tar_keys(YEAR)
-    files = [(FIXTURES / "english_mini.index.json", index_key), (FIXTURES / "english_mini.tar", tar_key)]
+    files = []
+    for year in years:
+        index_key, tar_key = english_tar_keys(year)
+        files += [(FIXTURES / "english_mini.index.json", index_key), (FIXTURES / "english_mini.tar", tar_key)]
     for src, key in files:
         local_path(tmp_path, key).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, local_path(tmp_path, key))
@@ -80,9 +86,21 @@ def test_an_unreadable_pdf_is_an_error_on_its_judgment_and_the_rest_still_load(c
     assert error
     assert report.counts == {
         "extracted": 4, "errors": 1, "ocr": 3, "born_digital": 1,
-        "without_judgment": 1, "missing_from_tar": 1, "unindexed": 1,
+        "without_judgment": 1, "missing_from_tar": 1, "unindexed": 1, "cross_year_duplicates": 0,
     }  # fmt: skip
     assert report.without_judgment == ["S_2003_2_63_65"]
+
+
+def test_a_pdf_in_two_years_tars_is_counted_once_and_reported_as_a_cross_year_duplicate(conn, tmp_path):
+    home, _ = _stage(conn, tmp_path, [YEAR - 1, YEAR])  # the same tar in both years
+    report = extract_text(conn, data_home=home, years=[YEAR - 1, YEAR])
+
+    assert report.counts == {
+        "extracted": 4, "errors": 1, "ocr": 3, "born_digital": 1,
+        "without_judgment": 1, "missing_from_tar": 2, "unindexed": 2, "cross_year_duplicates": 5,
+    }  # fmt: skip
+    assert report.without_judgment == ["S_2003_2_63_65"]
+    assert sorted(report.cross_year_duplicates) == sorted(PATHS)
 
 
 def test_rerunning_gives_the_same_hashes(conn, corpus):

@@ -33,6 +33,7 @@ class ExtractReport:
     without_judgment: list[str] = field(default_factory=list)  # PDFs whose path isn't a Judgment
     missing_from_tar: list[str] = field(default_factory=list)  # index names absent from the tar
     unindexed: list[str] = field(default_factory=list)  # tar entries not in the index
+    cross_year_duplicates: list[str] = field(default_factory=list)  # paths in more than one year's tar
 
 
 def extract_text(
@@ -51,16 +52,13 @@ def extract_text(
     years = tuple(sorted(set(years)))
     runs = [(year, extract_year(data_home, year, manifest)) for year in years]  # check every year first
     report = ExtractReport(snapshot_id=manifest["snapshot_id"], years=years, counts={})
-    tally: Counter[str] = Counter()
+    latest: dict[str, Extracted] = {}  # a path in two years' tars is saved twice; the last write wins
     for year, run in runs:
         batch: list[Extracted] = []
         for extracted in run.results:
-            if extracted.error:
-                tally["errors"] += 1
-                report.errors[extracted.path] = extracted.error
-            else:
-                tally["extracted"] += 1
-                tally[str(extracted.text_quality)] += 1
+            if extracted.path in latest:
+                report.cross_year_duplicates.append(extracted.path)
+            latest[extracted.path] = extracted
             batch.append(extracted)
             if progress:
                 progress(year, extracted)
@@ -69,14 +67,18 @@ def extract_text(
         _save(conn, batch, report)
         report.missing_from_tar += run.missing_from_tar
         report.unindexed += run.unindexed
+    report.errors = {e.path: e.error for e in latest.values() if e.error}
+    report.without_judgment = list(dict.fromkeys(report.without_judgment))
+    tally = Counter(str(e.text_quality) for e in latest.values() if not e.error)
     report.counts = {
-        "extracted": tally["extracted"],
-        "errors": tally["errors"],
+        "extracted": len(latest) - len(report.errors),
+        "errors": len(report.errors),
         "ocr": tally["ocr"],
         "born_digital": tally["born_digital"],
         "without_judgment": len(report.without_judgment),
         "missing_from_tar": len(report.missing_from_tar),
         "unindexed": len(report.unindexed),
+        "cross_year_duplicates": len(report.cross_year_duplicates),
     }
     return report
 
