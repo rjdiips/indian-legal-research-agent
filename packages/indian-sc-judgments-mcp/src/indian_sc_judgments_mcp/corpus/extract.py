@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import os
 import tarfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -86,18 +86,29 @@ class TarExtraction:
         except UnreadablePdf as exc:
             return Extracted(path, None, None, None, None, None, error=str(exc) or "unreadable PDF")
         dest = raw_text_path(self.data_home, path)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_name(dest.name + ".part")
-        tmp.write_bytes(raw.text.encode("utf-8"))
-        tmp.replace(dest)
+        write_atomic(dest, raw.text.encode("utf-8"))
         return Extracted(path, raw.sha256, raw.text_quality, raw.pages, raw.scanned_pages, dest)
 
 
-def extract_tar(tar_path: Path, index_path: Path, *, data_home: Path) -> TarExtraction:
-    return TarExtraction(tar_path, index_path, data_home)
-
-
-def extract_year(data_home: Path, year: int) -> TarExtraction:
-    """Extract one Reporter year's downloaded English tar (see `fetch.fetch_corpus`)."""
+def extract_year(data_home: Path, year: int, manifest: Mapping) -> TarExtraction:
+    """Extract one Reporter year's downloaded English tar, as listed in a Snapshot `manifest`
+    (see `snapshot.Snapshot.manifest`). LookupError, before reading anything, when the manifest
+    doesn't list the year's tar and index, or a downloaded file's size doesn't match it."""
+    snapshot = manifest["snapshot_id"][:12]
+    sizes = {o["key"]: o["size"] for o in manifest["objects"]}
     index_key, tar_key = english_tar_keys(year)
+    for key in (index_key, tar_key):
+        if key not in sizes:
+            raise LookupError(f"Snapshot {snapshot} has no {key}; ingest that year first")
+        local = local_path(data_home, key)
+        if not local.is_file() or local.stat().st_size != sizes[key]:
+            raise LookupError(f"{local} doesn't match Snapshot {snapshot}; rerun ingest")
     return TarExtraction(local_path(data_home, tar_key), local_path(data_home, index_key), data_home)
+
+
+def write_atomic(dest: Path, data: bytes) -> None:
+    """Write `data` to `dest` through a `.part` file, so a reader never sees half a file."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + ".part")
+    tmp.write_bytes(data)
+    tmp.replace(dest)

@@ -6,6 +6,8 @@ Status: accepted
 
 Postgres 17 with pgvector holds everything the app stores: corpus (Snapshots, Judgments, paragraphs), citation graph, treatments, vectors, keyword indexes and LangGraph checkpoints. We won't add DuckDB or SQLite stores, or switch stores later in the project. Postgres runs from the `pgvector/pgvector:pg17` image through `docker-compose.yml`. Integration tests use a throwaway testcontainers Postgres. This keeps `gpu4090` and `laptop4060` on the same version and extensions, and keeps them apart from the Postgres 13 already installed on the host. The schema is plain numbered SQL in `migrations/`, with no ORM.
 
+Corpus text is the one exception (spec decision 7): raw text, cleaned text and offset maps are files on disk under `DATA_DIR`, one per Judgment. Postgres holds their metadata, paragraph offsets and text hashes, not the text.
+
 The package's `corpus/` code stays storage-agnostic: it produces plain Python records and iterators, and only `legal_agent` writes them to Postgres.
 
 ## Considered options

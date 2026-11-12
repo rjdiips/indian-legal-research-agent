@@ -1,9 +1,10 @@
 """Extract raw text and Text quality for downloaded years and save them (issue 03).
 
-For each Reporter year, the English tar already in the data home (from `legal-agent ingest`)
-is streamed once; each PDF's raw text goes to `<data_home>/text/raw/<path>.txt` and its hash,
-Text quality and page counts (or its error) to the Judgment's row. No OCR. Rerunning
-re-extracts and gives the same hashes. The corpus logic lives in the storage-agnostic package;
+For each Reporter year, the English tar listed in the Snapshot (the latest, unless named) and
+already in the data home (from `legal-agent ingest`) is streamed once; each PDF's raw text goes
+to `<data_home>/text/raw/<path>.txt` and its hash, Text quality, page counts and
+`raw_snapshot_id` (or its error) to the Judgment's row. No OCR. Rerunning re-extracts and gives
+the same hashes. The corpus logic lives in the storage-agnostic package;
 this module only persists it (ADR-0001).
 """
 
@@ -17,7 +18,7 @@ from pathlib import Path
 import psycopg
 
 from indian_sc_judgments_mcp.corpus.extract import Extracted, extract_year
-from legal_agent.db.corpus import save_raw_text
+from legal_agent.db.corpus import save_raw_text, snapshot_manifest
 from legal_agent.db.migrate import MIGRATIONS_DIR, migrate
 
 _BATCH = 200  # rows per transaction
@@ -25,6 +26,7 @@ _BATCH = 200  # rows per transaction
 
 @dataclass
 class ExtractReport:
+    snapshot_id: str
     years: tuple[int, ...]
     counts: dict[str, int]
     errors: dict[str, str] = field(default_factory=dict)  # path -> error
@@ -39,14 +41,18 @@ def extract_text(
     data_home: Path,
     years: Iterable[int],
     migrations_dir: Path = MIGRATIONS_DIR,
+    snapshot_id: str | None = None,
     progress: Callable[[int, Extracted], None] | None = None,
 ) -> ExtractReport:
+    """LookupError, before extracting anything, when a year's tar isn't in the Snapshot or the
+    downloaded copy doesn't match it."""
     migrate(conn, migrations_dir)
+    manifest = snapshot_manifest(conn, snapshot_id)
     years = tuple(sorted(set(years)))
-    report = ExtractReport(years=years, counts={})
+    runs = [(year, extract_year(data_home, year, manifest)) for year in years]  # check every year first
+    report = ExtractReport(snapshot_id=manifest["snapshot_id"], years=years, counts={})
     tally: Counter[str] = Counter()
-    for year in years:
-        run = extract_year(data_home, year)
+    for year, run in runs:
         batch: list[Extracted] = []
         for extracted in run.results:
             if extracted.error:
@@ -78,6 +84,6 @@ def extract_text(
 def _save(conn: psycopg.Connection, batch: list[Extracted], report: ExtractReport) -> None:
     with conn.transaction():
         for extracted in batch:
-            if not save_raw_text(conn, extracted):
+            if not save_raw_text(conn, extracted, report.snapshot_id):
                 report.without_judgment.append(extracted.path)
     batch.clear()

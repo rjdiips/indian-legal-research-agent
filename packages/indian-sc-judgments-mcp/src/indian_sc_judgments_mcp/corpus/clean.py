@@ -31,7 +31,7 @@ import re
 import statistics
 from dataclasses import dataclass, field
 
-PAGE_BREAK = "\f"
+from indian_sc_judgments_mcp.corpus.raw_text import PAGE_BREAK
 
 # Characters dropped wherever they occur: C0 controls other than tab and newline.
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f]")

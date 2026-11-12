@@ -1,14 +1,16 @@
 """Pipeline commands.
 
+The default Reporter years are `DEFAULT_TAR_YEARS` (see `legal-agent ingest --help`).
+
 legal-agent migrate
-legal-agent ingest                       # all metadata + English tars 2015-2026
-legal-agent ingest --tar-years none      # all metadata only
-legal-agent ingest --tar-years 1950-2026 # backfill older years (only new tars are fetched)
-legal-agent extract-text                 # raw text + Text quality for downloaded tars 2015-2026
-legal-agent extract-text --years 2020    # one Reporter year
-legal-agent clean-text                   # cleaned text, Pinpoint paragraphs, Bench size for all raw text
-legal-agent report                       # write reports/corpus-<snapshot>.md for the latest Snapshot
-legal-agent run                          # all of the above for 2015-2026, then the report
+legal-agent ingest                            # all metadata + English tars for the default years
+legal-agent ingest --tar-years none           # all metadata only
+legal-agent ingest --tar-years 1950-2026      # backfill older years (only new tars are fetched)
+legal-agent extract-text                      # raw text + Text quality from the latest Snapshot's tars
+legal-agent extract-text --tar-years 2020     # one Reporter year
+legal-agent clean-text                        # cleaned text, Pinpoint paragraphs, Bench size for all raw text
+legal-agent report                            # write reports/corpus-<snapshot>.md for the latest Snapshot
+legal-agent run                               # all of the above for the default years, then the report
 """
 
 from __future__ import annotations
@@ -32,7 +34,12 @@ from legal_agent.extract import extract_text
 from legal_agent.ingest import ingest_corpus
 from legal_agent.pipeline import run_corpus, write_report
 
-_DEFAULT_TAR_YEARS = f"{DEFAULT_TAR_YEARS.start}-{DEFAULT_TAR_YEARS.stop - 1}"
+
+def _span(years: tuple[int, ...] | range) -> str:
+    return f"{years[0]}-{years[-1]}" if years else "none"
+
+
+_DEFAULT_TAR_YEARS = _span(DEFAULT_TAR_YEARS)
 
 
 def tar_years(value: str) -> tuple[int, ...]:
@@ -64,10 +71,11 @@ def main(argv: list[str] | None = None) -> int:
         f"(default {_DEFAULT_TAR_YEARS})",
     )
     extract = commands.add_parser(
-        "extract-text", help="extract raw text and Text quality from downloaded English tars (no OCR)"
+        "extract-text",
+        help="extract raw text and Text quality from the latest Snapshot's downloaded English tars (no OCR)",
     )
     extract.add_argument(
-        "--years",
+        "--tar-years",
         type=tar_years,
         default=tar_years(_DEFAULT_TAR_YEARS),
         metavar="FROM-TO|YEAR",
@@ -79,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     commands.add_parser("report", help="write the run report for the latest Snapshot to reports/")
     commands.add_parser(
-        "run", help="ingest, extract-text and clean-text for English tars 2015-2026, then report"
+        "run", help=f"ingest, extract-text and clean-text for English tars {_DEFAULT_TAR_YEARS}, then report"
     )
     args = parser.parse_args(argv)
 
@@ -91,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"applied {len(applied)} migration(s)" + "".join(f"\n  {name}" for name in applied))
             return 0
         if args.command == "extract-text":
-            return _extract_text(conn, home, args.years)
+            return _extract_text(conn, home, args.tar_years)
         if args.command == "clean-text":
             return _clean_text(conn, home)
         if args.command == "report":
@@ -109,8 +117,9 @@ def main(argv: list[str] | None = None) -> int:
                 data_home=home,
                 tar_years=args.tar_years,
             )
-    years = f"{report.tar_years[0]}-{report.tar_years[-1]}" if report.tar_years else "none"
-    print(f"snapshot {report.snapshot_id}  ({report.objects} objects, English tars: {years})")
+    print(
+        f"snapshot {report.snapshot_id}  ({report.objects} objects, English tars: {_span(report.tar_years)})"
+    )
     print(f"manifest {report.manifest_path}")
     print(f"  {'downloaded_bytes':<24}{report.downloaded_bytes}")
     for name, value in report.counts.items():
@@ -128,8 +137,8 @@ def _extract_text(conn: psycopg.Connection, home: Path, years: tuple[int, ...]) 
             print(f"  {year} unreadable PDF {extracted.path}: {extracted.error}", file=sys.stderr)
 
     report = extract_text(conn, data_home=home, years=years, progress=progress)
-    span = f"{years[0]}-{years[-1]}" if years else "none"
-    print(f"raw text for Reporter years {span} -> {home / 'text' / 'raw'}")
+    print(f"raw text for Reporter years {_span(years)} (Snapshot {report.snapshot_id[:12]})")
+    print(f"  -> {home / 'text' / 'raw'}")
     for name, value in report.counts.items():
         print(f"  {name:<24}{value}")
     for name in report.missing_from_tar:

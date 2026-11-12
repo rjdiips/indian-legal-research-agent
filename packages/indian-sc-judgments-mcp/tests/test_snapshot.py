@@ -32,3 +32,11 @@ def test_manifest_is_saved_under_the_data_home(tmp_path):
     assert manifest["fetched_at"] == "2026-11-11T10:00:00+00:00"
     assert manifest["objects"] == [{"key": A.key, "size": A.size, "etag": A.etag}]
     assert manifest["dedup"] == {"rows_read": 5, "duplicates": 1}
+
+
+def test_a_listing_saved_again_keeps_its_first_fetch_time(tmp_path):
+    Snapshot.from_listing([A], fetched_at="2026-11-11T10:00:00+00:00").save(tmp_path)
+
+    path = Snapshot.from_listing([A], fetched_at="2026-11-12T09:30:00+00:00").save(tmp_path)
+
+    assert json.loads(path.read_text())["fetched_at"] == "2026-11-11T10:00:00+00:00"
