@@ -6,7 +6,7 @@ Corpus logic stays storage-agnostic in the published package; only the research 
 
 **Blocked by:** None (can start immediately)
 
-**Status:** resolved (032cd3f)
+**Status:** resolved (03d19df)
 
 - [x] The same bucket listing gives the same `snapshot_id`; a changed ETag gives a different one. The manifest is saved under the package data home.
 - [x] Rows with a repeated `path` produce one Judgment. The Decision date comes only from `decision_date`, never from the bucket's Reporter year.
