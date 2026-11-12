@@ -9,7 +9,7 @@
 
 **Blocked by:** none
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
 - [ ] A one-name block (`J.`, `CJI`) is not read as the coram; the parser looks for the bench block, or leaves NULL.
 - [ ] OCR variants of `CJI` (`CJJ`, `CJT`, `CJl`, `C.J.l`) are read as `CJI`.

@@ -10,7 +10,7 @@ Keep cleaning reversible: only drop raw characters, so the offset map stays exac
 
 **Blocked by:** None
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
 - [ ] Golden test on `2014_14_185_186` (or a fixture made from it): no noise block, no `h`, `s·` or leading `B` margin letters, offset map still exact.
 - [ ] Symbol-noise lines drop from 1,330 to near zero on the real corpus; table lines with dates and figures stay.

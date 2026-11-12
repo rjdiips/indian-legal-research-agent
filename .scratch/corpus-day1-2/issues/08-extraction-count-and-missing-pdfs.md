@@ -9,7 +9,7 @@ Also seen: 2017_5_160_276 has decision_date 2017-01-01 (a public holiday), which
 
 **Blocked by:** none
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
 - [ ] `extract-text` counts each `path` once (or reports cross-year duplicates separately).
 - [ ] The two PDF-less Judgments are checked upstream and noted (in the report or as a known bucket gap).
