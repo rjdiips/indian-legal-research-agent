@@ -11,6 +11,7 @@ dependencies = [
   "duckdb>=1.1",
   "bm25s>=0.2",
   "httpx>=0.27",
+  "pymupdf>=1.24,<2",  # 2.x pulls in onnxruntime layout models we do not use
 ]
 
 [project.optional-dependencies]

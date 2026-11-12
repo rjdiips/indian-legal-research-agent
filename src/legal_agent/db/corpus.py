@@ -1,4 +1,4 @@
-"""Write corpus records (Snapshots, Judgments) to Postgres. Upserts are idempotent."""
+"""Write corpus records (Snapshots, Judgments, raw text results) to Postgres. Idempotent."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from dataclasses import astuple, fields
 import psycopg
 from psycopg.types.json import Jsonb
 
+from indian_sc_judgments_mcp.corpus.extract import Extracted
 from indian_sc_judgments_mcp.corpus.loader import Judgment
 from indian_sc_judgments_mcp.corpus.snapshot import Snapshot
 
@@ -34,3 +35,18 @@ def upsert_judgments(conn: psycopg.Connection, judgments: Iterable[Judgment]) ->
     with conn.cursor() as cur:
         cur.executemany(_UPSERT_JUDGMENT, rows)  # type: ignore[arg-type]
     return len(rows)
+
+
+_SAVE_RAW_TEXT = (
+    "UPDATE judgments SET raw_text_sha256 = %s, text_quality = %s, page_count = %s, scanned_pages = %s,"
+    " text_error = %s, text_extracted_at = now(), updated_at = now() WHERE path = %s"
+)
+
+
+def save_raw_text(conn: psycopg.Connection, extracted: Extracted) -> bool:
+    """Record one Judgment's raw text hash and Text quality (or its error). False when no
+    Judgment has that `path`."""
+    e = extracted
+    quality = e.text_quality.value if e.text_quality else None
+    cur = conn.execute(_SAVE_RAW_TEXT, [e.sha256, quality, e.pages, e.scanned_pages, e.error, e.path])
+    return cur.rowcount > 0

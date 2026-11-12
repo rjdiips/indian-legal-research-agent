@@ -1,0 +1,83 @@
+"""Extract raw text and Text quality for downloaded years and save them (issue 03).
+
+For each Reporter year, the English tar already in the data home (from `legal-agent ingest`)
+is streamed once; each PDF's raw text goes to `<data_home>/text/raw/<path>.txt` and its hash,
+Text quality and page counts (or its error) to the Judgment's row. No OCR. Rerunning
+re-extracts and gives the same hashes. The corpus logic lives in the storage-agnostic package;
+this module only persists it (ADR-0001).
+"""
+
+from __future__ import annotations
+
+from collections import Counter
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import psycopg
+
+from indian_sc_judgments_mcp.corpus.extract import Extracted, extract_year
+from legal_agent.db.corpus import save_raw_text
+from legal_agent.db.migrate import MIGRATIONS_DIR, migrate
+
+_BATCH = 200  # rows per transaction
+
+
+@dataclass
+class ExtractReport:
+    years: tuple[int, ...]
+    counts: dict[str, int]
+    errors: dict[str, str] = field(default_factory=dict)  # path -> error
+    without_judgment: list[str] = field(default_factory=list)  # PDFs whose path isn't a Judgment
+    missing_from_tar: list[str] = field(default_factory=list)  # index names absent from the tar
+    unindexed: list[str] = field(default_factory=list)  # tar entries not in the index
+
+
+def extract_text(
+    conn: psycopg.Connection,
+    *,
+    data_home: Path,
+    years: Iterable[int],
+    migrations_dir: Path = MIGRATIONS_DIR,
+    progress: Callable[[int, Extracted], None] | None = None,
+) -> ExtractReport:
+    migrate(conn, migrations_dir)
+    years = tuple(sorted(set(years)))
+    report = ExtractReport(years=years, counts={})
+    tally: Counter[str] = Counter()
+    for year in years:
+        run = extract_year(data_home, year)
+        batch: list[Extracted] = []
+        for extracted in run.results:
+            if extracted.error:
+                tally["errors"] += 1
+                report.errors[extracted.path] = extracted.error
+            else:
+                tally["extracted"] += 1
+                tally[str(extracted.text_quality)] += 1
+            batch.append(extracted)
+            if progress:
+                progress(year, extracted)
+            if len(batch) >= _BATCH:
+                _save(conn, batch, report)
+        _save(conn, batch, report)
+        report.missing_from_tar += run.missing_from_tar
+        report.unindexed += run.unindexed
+    report.counts = {
+        "extracted": tally["extracted"],
+        "errors": tally["errors"],
+        "ocr": tally["ocr"],
+        "born_digital": tally["born_digital"],
+        "without_judgment": len(report.without_judgment),
+        "missing_from_tar": len(report.missing_from_tar),
+        "unindexed": len(report.unindexed),
+    }
+    return report
+
+
+def _save(conn: psycopg.Connection, batch: list[Extracted], report: ExtractReport) -> None:
+    with conn.transaction():
+        for extracted in batch:
+            if not save_raw_text(conn, extracted):
+                report.without_judgment.append(extracted.path)
+    batch.clear()
