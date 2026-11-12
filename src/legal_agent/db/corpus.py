@@ -1,4 +1,4 @@
-"""Write corpus records (Snapshots, Judgments, raw text results) to Postgres. Idempotent."""
+"""Write corpus records (Snapshots, Judgments, raw text, cleaned text results) to Postgres. Idempotent."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from psycopg.types.json import Jsonb
 from indian_sc_judgments_mcp.corpus.extract import Extracted
 from indian_sc_judgments_mcp.corpus.loader import Judgment
 from indian_sc_judgments_mcp.corpus.snapshot import Snapshot
+from indian_sc_judgments_mcp.corpus.structure import Structured
 
 _COLUMNS = [f.name for f in fields(Judgment)]
 _UPSERT_JUDGMENT = (
@@ -50,3 +51,32 @@ def save_raw_text(conn: psycopg.Connection, extracted: Extracted) -> bool:
     quality = e.text_quality.value if e.text_quality else None
     cur = conn.execute(_SAVE_RAW_TEXT, [e.sha256, quality, e.pages, e.scanned_pages, e.error, e.path])
     return cur.rowcount > 0
+
+
+_SAVE_STRUCTURE = (
+    "UPDATE judgments SET clean_text_sha256 = %s, bench_size = %s, bench_evidence = %s,"
+    " clean_error = %s, cleaned_at = now(), updated_at = now() WHERE path = %s"
+)
+_INSERT_PARAGRAPH = (
+    "INSERT INTO paragraphs (path, ordinal, number, char_start, char_end, text)"
+    " VALUES (%s, %s, %s, %s, %s, %s)"
+)
+
+
+def save_structure(conn: psycopg.Connection, structured: Structured) -> bool:
+    """Record one Judgment's cleaned text hash, Bench size and paragraphs (or its cleaning error),
+    replacing any paragraphs from an earlier run. False when no Judgment has that `path`."""
+    s = structured
+    bench = s.bench
+    cur = conn.execute(
+        _SAVE_STRUCTURE,
+        [s.clean_sha256, bench.size if bench else None, bench.evidence if bench else None, s.error, s.path],
+    )
+    if cur.rowcount == 0:
+        return False
+    conn.execute("DELETE FROM paragraphs WHERE path = %s", [s.path])
+    with conn.cursor() as c:
+        c.executemany(
+            _INSERT_PARAGRAPH, [(s.path, p.ordinal, p.number, p.start, p.end, p.text) for p in s.paragraphs]
+        )
+    return True
