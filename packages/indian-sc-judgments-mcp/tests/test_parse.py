@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from indian_sc_judgments_mcp.corpus.clean import clean_text
-from indian_sc_judgments_mcp.corpus.parse import Bench, bench_size, paragraphs
+from indian_sc_judgments_mcp.corpus.parse import Bench, bench_size, opinions, paragraphs
 
 GOLDEN = Path(__file__).parent / "golden"
 ALL = sorted(p.stem for p in GOLDEN.glob("*.txt"))
@@ -290,3 +290,113 @@ def test_a_short_numbered_list_deep_in_an_unnumbered_judgment_is_not_paragraphs(
 
 def test_empty_text_has_no_paragraphs():
     assert paragraphs("") == []
+
+
+# --- Opinions ---------------------------------------------------------------------------------
+
+
+def _numbered(first: int, last: int, words: str) -> str:
+    return "".join(f"{n}. {words} paragraph {n} of this opinion.\n" for n in range(first, last + 1))
+
+
+def test_a_second_opinion_that_restarts_at_one_gets_its_own_paragraph_run():
+    text = (
+        "JUDGMENT\nDR. D.Y. CHANDRACHUD, CJI\n"
+        + _numbered(1, 8, "The first")
+        + "Pending applications are disposed of. SANJAY KISHAN KAUL, J.\n"
+        + _numbered(1, 6, "The second")
+    )
+
+    paras = paragraphs(text)
+    found = opinions(text, paras)
+
+    assert [(p.opinion, p.number) for p in paras] == [(1, n) for n in range(1, 9)] + [
+        (2, n) for n in range(1, 7)
+    ]
+    assert paras[7].text == "8. The first paragraph 8 of this opinion.\nPending applications are disposed of."
+    assert [(o.number, o.author) for o in found] == [
+        (1, "DR. D.Y. CHANDRACHUD, CJI"),
+        (2, "SANJAY KISHAN KAUL, J."),
+    ]
+    assert text[found[1].start : found[1].end].startswith("SANJAY KISHAN KAUL, J.\n1. The second")
+    assert (found[0].start, found[-1].end) == (0, len(text))
+    assert found[0].end == found[1].start
+
+
+def test_numbered_headnote_points_before_the_first_author_are_not_an_opinion():
+    # From 2017_9_442_452: OCR spoilt the delivery line, so the headnote's points 2 and 3 were taken.
+    text = (
+        "[DEEPAK GUPTA AND X, JJ.]\nHELD: 1. The decree was set aside.\n"
+        + _numbered(2, 3, "A headnote")
+        + "The Judgment of the Court wa!ii delivered by DEEPAK GUPTA, J.\n"
+        + _numbered(1, 6, "The")
+    )
+
+    paras = paragraphs(text)
+
+    assert [(p.opinion, p.number) for p in paras] == [(1, n) for n in range(1, 7)]
+    assert [o.author for o in opinions(text, paras)] == ["DEEPAK GUPTA, J."]
+
+
+def test_an_opinion_whose_first_paragraph_follows_the_author_on_one_line_is_found():
+    # From 2015_14_927_974: `... a larger Bench. V. GOPALA GOWDA, J. 1. I have gone through ...`
+    text = (
+        "JUDGMENT\nDIPAK MISRA, J.\n"
+        + _numbered(1, 6, "The first")
+        + "Let the papers be placed before a larger Bench. V. GOPALA GOWDA, J. 1. I have gone through it.\n"
+        + _numbered(2, 4, "The second")
+    )
+
+    paras = paragraphs(text)
+
+    assert [(p.opinion, p.number) for p in paras][-4:] == [(2, 1), (2, 2), (2, 3), (2, 4)]
+    assert paras[5].text.endswith("larger Bench.")
+    assert opinions(text, paras)[1].author == "V. GOPALA GOWDA, J."
+
+
+def test_a_judge_named_far_before_a_numbered_list_does_not_start_an_opinion():
+    # From 2015_13_1_1056: a footnote line ending `Bhagwati, J.` pages before a quoted Act's `1.`
+    text = (
+        "JUDGMENT\nDIPAK MISRA, J.\n"
+        + _numbered(1, 6, "The")
+        + "7. The view of the majority was put thus by\nBhagwati, J.\n"
+        + "The discussion goes on at length. " * 200
+        + "\nThe Act reads:\n"
+        + _numbered(1, 5, "Section")
+    )
+
+    paras = paragraphs(text)
+
+    assert {p.opinion for p in paras} == {1}
+    assert [p.number for p in paras] == list(range(1, 8))
+
+
+def test_golden_same_sex_marriage_judgment_has_one_paragraph_run_per_opinion():
+    # 2023_16_1209_1524, trimmed (golden/README.md). Four Opinions: S. Ravindra Bhat, J. writes
+    # for himself and Hima Kohli, J. On the full text the longest paragraph is 8,383 characters;
+    # before Opinions, the CJI's para 342 held Kaul J.'s whole Opinion (251,635).
+    text = cleaned("2023_16_1209_1524").text
+
+    paras = paragraphs(text)
+    found = opinions(text, paras)
+
+    assert [o.author for o in found][1:] == [
+        "SANJAY KISHAN KAUL, J.",
+        "S. RAVINDRA BHAT, J.",
+        "PAMIDIGHANTAM SRI NARASIMHA, J.",
+    ]
+    runs = [[p.number for p in paras if p.opinion == o.number] for o in found]
+    assert [(run[0], run[-1]) for run in runs] == [(1, 342), (1, 33), (1, 166), (1, 20)]
+    assert max(p.end - p.start for p in paras) < 20_000
+    assert (found[0].start, found[-1].end) == (0, len(text))
+    assert all(a.end == b.start for a, b in zip(found, found[1:], strict=False))
+    assert all(o.start <= p.start < p.end <= o.end for p in paras for o in found if o.number == p.opinion)
+
+
+def test_a_single_opinion_judgment_is_opinion_one():
+    text = cleaned("2019_18_990_994").text
+
+    paras = paragraphs(text)
+
+    assert {p.opinion for p in paras} == {1}
+    assert [(o.number, o.start, o.end) for o in opinions(text, paras)] == [(1, 0, len(text))]

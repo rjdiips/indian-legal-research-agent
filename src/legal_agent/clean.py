@@ -1,4 +1,4 @@
-"""Clean extracted raw text, save Pinpoint paragraphs and Bench size (issue 04).
+"""Clean extracted raw text, save Pinpoint paragraphs, Opinions and Bench size (issue 04).
 
 Every Judgment with raw text (`raw_text_sha256` set by `legal-agent extract-text`) is cleaned:
 the cleaned text and its offset map go to `<data_home>/text/clean/`, and its hash, paragraph
@@ -56,13 +56,15 @@ def clean_texts(
             tally["numbered" if numbered else "unnumbered"] += 1
             tally["bench_known" if result.bench and result.bench.size else "bench_unknown"] += 1
             tally["paragraphs"] += len(result.paragraphs)
+            tally["multi_opinion"] += len(result.opinions) > 1
         batch.append((result, snapshot_id))
         if progress:
             progress(result)
         if len(batch) >= _BATCH:
             _save(conn, batch)
     _save(conn, batch)
-    keys = ["cleaned", "errors", "numbered", "unnumbered", "bench_known", "bench_unknown", "paragraphs"]
+    keys = ["cleaned", "errors", "numbered", "unnumbered", "bench_known", "bench_unknown", "paragraphs",
+            "multi_opinion"]  # fmt: skip
     report.counts = {k: tally[k] for k in keys}
     return report
 

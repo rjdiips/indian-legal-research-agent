@@ -11,13 +11,13 @@ from indian_sc_judgments_mcp.corpus.raw_text import TextQuality
 from indian_sc_judgments_mcp.corpus.snapshot import Snapshot
 from indian_sc_judgments_mcp.corpus.structure import clean_text_path
 from legal_agent.clean import clean_texts
-from legal_agent.db.corpus import save_raw_text, save_snapshot, upsert_judgments
+from legal_agent.db.corpus import pinpoint_paragraph, save_raw_text, save_snapshot, upsert_judgments
 from legal_agent.db.migrate import MIGRATIONS_DIR, migrate
 
 pytestmark = pytest.mark.integration
 
 GOLDEN = Path(__file__).parents[2] / "packages" / "indian-sc-judgments-mcp" / "tests" / "golden"
-WITH_RAW = ["2019_18_990_994", "S_1996_4_314_315", "2023_1_1105_1110"]
+WITH_RAW = ["2019_18_990_994", "S_1996_4_314_315", "2023_1_1105_1110", "2023_16_1209_1524"]
 NOT_EXTRACTED = "2099_1_2_2"
 
 
@@ -84,8 +84,8 @@ def test_each_judgment_gets_its_cleaned_text_hash_bench_size_and_paragraphs(conn
     assert slices[0].startswith("1. The short question involved in this appeal")
     assert all(body == body.strip() for body in slices)
     assert report.counts == {
-        "cleaned": 3, "errors": 0, "numbered": 2, "unnumbered": 1, "bench_known": 2, "bench_unknown": 1,
-        "paragraphs": 11 + 1 + 18,
+        "cleaned": 4, "errors": 0, "numbered": 3, "unnumbered": 1, "bench_known": 3, "bench_unknown": 1,
+        "paragraphs": 11 + 1 + 18 + 338 + 33 + 166 + 20, "multi_opinion": 1,  # the trim loses 4 of 342
     }  # fmt: skip
 
 
@@ -135,3 +135,31 @@ def test_cleaned_text_records_the_snapshot_its_raw_text_came_from(conn, corpus):
     (raw_snapshot,) = conn.execute("SELECT snapshot_id FROM snapshots ORDER BY fetched_at DESC").fetchone()
     assert {r[5] for r in _rows(conn).values()} == {raw_snapshot, None}
     assert _rows(conn)["2019_18_990_994"][5] == raw_snapshot
+
+
+def test_each_opinion_is_saved_and_paragraph_n_of_opinion_k_can_be_fetched(conn, corpus):
+    clean_texts(conn, data_home=corpus)
+
+    opinions = conn.execute(
+        "SELECT number, author, char_start, char_end FROM opinions WHERE path = %s ORDER BY number",
+        ["2023_16_1209_1524"],
+    ).fetchall()
+    assert [o[1] for o in opinions][1:] == [
+        "SANJAY KISHAN KAUL, J.",
+        "S. RAVINDRA BHAT, J.",
+        "PAMIDIGHANTAM SRI NARASIMHA, J.",
+    ]
+    text = clean_text_path(corpus, "2023_16_1209_1524").read_text(encoding="utf-8")
+    assert (opinions[0][2], opinions[-1][3]) == (0, len(text))
+
+    kaul_1 = pinpoint_paragraph(conn, corpus, "2023_16_1209_1524", 1, opinion=2)
+    assert kaul_1.startswith("1.This case presents a new path")
+    assert kaul_1 in text
+    assert pinpoint_paragraph(conn, corpus, "2023_16_1209_1524", 342).startswith("342.")
+    assert pinpoint_paragraph(conn, corpus, "2023_16_1209_1524", 342, opinion=2) is None
+    # a single-Opinion Judgment's paragraphs are all Opinion 1
+    assert pinpoint_paragraph(conn, corpus, "2019_18_990_994", 9).startswith("9. As pointed out above")
+    assert conn.execute(
+        "SELECT count(*), count(*) FILTER (WHERE opinion = 1) FROM paragraphs WHERE path = %s",
+        ["2019_18_990_994"],
+    ).fetchone() == (11, 11)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import astuple, fields
+from pathlib import Path
 
 import psycopg
 from psycopg.types.json import Jsonb
@@ -11,7 +12,7 @@ from psycopg.types.json import Jsonb
 from indian_sc_judgments_mcp.corpus.extract import Extracted
 from indian_sc_judgments_mcp.corpus.loader import Judgment
 from indian_sc_judgments_mcp.corpus.snapshot import Snapshot
-from indian_sc_judgments_mcp.corpus.structure import Structured
+from indian_sc_judgments_mcp.corpus.structure import Structured, clean_text_path
 
 _COLUMNS = [f.name for f in fields(Judgment)]
 _UPSERT_JUDGMENT = (
@@ -73,14 +74,18 @@ _SAVE_STRUCTURE = (
     "UPDATE judgments SET clean_text_sha256 = %s, bench_size = %s, bench_evidence = %s,"
     " clean_error = %s, clean_snapshot_id = %s, cleaned_at = now(), updated_at = now() WHERE path = %s"
 )
+_INSERT_OPINION = (
+    "INSERT INTO opinions (path, number, author, char_start, char_end) VALUES (%s, %s, %s, %s, %s)"
+)
 _INSERT_PARAGRAPH = (
-    "INSERT INTO paragraphs (path, ordinal, number, char_start, char_end) VALUES (%s, %s, %s, %s, %s)"
+    "INSERT INTO paragraphs (path, ordinal, number, opinion, char_start, char_end)"
+    " VALUES (%s, %s, %s, %s, %s, %s)"
 )
 
 
 def save_structure(conn: psycopg.Connection, structured: Structured, snapshot_id: str | None) -> bool:
-    """Record one Judgment's cleaned text hash, Bench size and paragraph offsets (or its cleaning
-    error), derived from raw text of Snapshot `snapshot_id`, replacing any paragraphs from an earlier
+    """Record one Judgment's cleaned text hash, Bench size, Opinions and paragraph offsets (or its
+    cleaning error), derived from raw text of Snapshot `snapshot_id`, replacing any from an earlier
     run. False when no Judgment has that `path`."""
     s = structured
     bench = s.bench
@@ -97,9 +102,25 @@ def save_structure(conn: psycopg.Connection, structured: Structured, snapshot_id
     )
     if cur.rowcount == 0:
         return False
-    conn.execute("DELETE FROM paragraphs WHERE path = %s", [s.path])
+    conn.execute("DELETE FROM opinions WHERE path = %s", [s.path])  # cascades to paragraphs
     with conn.cursor() as c:
+        c.executemany(_INSERT_OPINION, [(s.path, o.number, o.author, o.start, o.end) for o in s.opinions])
         c.executemany(
-            _INSERT_PARAGRAPH, [(s.path, p.ordinal, p.number, p.start, p.end) for p in s.paragraphs]
+            _INSERT_PARAGRAPH,
+            [(s.path, p.ordinal, p.number, p.opinion, p.start, p.end) for p in s.paragraphs],
         )
     return True
+
+
+def pinpoint_paragraph(
+    conn: psycopg.Connection, data_home: Path, path: str, number: int, opinion: int = 1
+) -> str | None:
+    """The text of paragraph `number` of Opinion `opinion` (ADR-0003): its slice of the cleaned-text
+    file. None when the Judgment has no such paragraph."""
+    row = conn.execute(
+        "SELECT char_start, char_end FROM paragraphs WHERE path = %s AND opinion = %s AND number = %s",
+        [path, opinion, number],
+    ).fetchone()
+    if row is None:
+        return None
+    return clean_text_path(data_home, path).read_text(encoding="utf-8")[row[0] : row[1]]

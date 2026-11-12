@@ -153,3 +153,17 @@ def test_the_report_counts_only_text_derived_under_its_snapshot(conn, run, bucke
     assert "| Cleaned | 0 |" in report
     with pytest.raises(LookupError, match=f"year={YEAR}"):  # its listing has no tar for that year
         extract_text(conn, data_home=home, years=[YEAR])
+
+
+def test_the_report_gives_the_share_of_judgments_with_more_than_one_opinion(conn, run, tmp_path):
+    assert "| With more than one Opinion | 0 (0.0%) |" in run().read_text()
+    # Paragraphs 6 to 10 of 2024_4_598_605 become a second Opinion.
+    conn.execute(
+        "INSERT INTO opinions (path, number, char_start, char_end)"
+        " SELECT path, 2, char_start, char_end FROM opinions WHERE path = '2024_4_598_605'"
+    )
+    conn.execute("UPDATE paragraphs SET opinion = 2 WHERE path = '2024_4_598_605' AND number > 5")
+
+    report = write_report(conn, tmp_path / "reports").read_text()
+
+    assert "| With more than one Opinion | 1 (25.0%) |" in report  # of the 4 cleaned
