@@ -1,7 +1,11 @@
 -- Opinions (ticket 10, ADR-0003): a Pinpoint paragraph is (Opinion, number), because each Opinion
--- of a Judgment may restart its paragraph numbers at 1. Opinions tile the cleaned text:
--- Opinion 1 starts at 0, each next one at its author line (or first paragraph), the last ends at
--- the text's end. Existing paragraphs are all Opinion 1 until clean-text runs again.
+-- of a Judgment may restart its paragraph numbers at 1. After clean-text, the Opinions cover the
+-- whole cleaned text with no gaps. Opinion 1 starts at 0. Each next Opinion starts at its author
+-- line (or its first paragraph). The last Opinion ends at the end of the text.
+--
+-- Back-fill: the database does not store the length of the cleaned text. So each Judgment that has
+-- paragraphs gets one Opinion 1 from 0 to the end of its last paragraph, and all its paragraphs are
+-- Opinion 1. This covers the paragraphs, not the whole text. The next clean-text run replaces it.
 
 CREATE TABLE opinions (
     path        text     NOT NULL REFERENCES judgments (path) ON DELETE CASCADE,

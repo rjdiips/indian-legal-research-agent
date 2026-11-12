@@ -11,16 +11,21 @@ the delivery line is a list, not paragraphs. A paragraph runs to the next taken 
 end of the text), trailing whitespace trimmed. With no run the whole text is one unnumbered block.
 A paragraph's decimal sub-paragraphs (`7.1`, `7.2`) stay inside it, as printed.
 
-Opinions (ADR-0003): a run may restart at 1 where a new Opinion begins (`SANJAY KISHAN KAUL, J.`
-then `1.`, or `V. GOPALA GOWDA, J. 1. I have ...` on one line). A restart counts only after an
-author line at most `_AUTHOR_REACH` before it, so a numbered list quoted in a paragraph
-(witnesses, a schedule, an Act) stays inside it. A restart costs `_RESTART_COST` markers, so each
-side of it needs two or more. A first run under `_HEADNOTE_RUN` markers with no author line,
-before a restart, is dropped when it does not start right after the delivery line (it is the
-headnote's points) or when it is an index (dot leaders to page numbers). A short Order right
-after the delivery line stays as Opinion 1. Each paragraph carries its Opinion's number; the author line (`NAME, J.`, `NAME, CJI`
-ending its line, `(Per Nariman, J.)`) ends the paragraph before it, starts the new Opinion and is
-kept as its author, else the author is None.
+Opinions (ADR-0003): a new Opinion may restart the paragraph numbers at 1. Its author line
+comes first: `SANJAY KISHAN KAUL, J.` then `1.`, or `V. GOPALA GOWDA, J. 1. I have ...` on one
+line. An author line is `NAME, J.` or `NAME, CJI` at the end of its line, or `(Per Nariman, J.)`.
+A restart counts only when an author line is at most `_AUTHOR_REACH` before the `1.`. So a
+numbered list quoted in a paragraph (witnesses, a schedule, an Act) stays inside that paragraph.
+A restart costs `_RESTART_COST` markers, so each Opinion needs two or more paragraphs.
+
+Each paragraph carries the number of its Opinion. The author line ends the paragraph before it
+and starts the new Opinion. It is kept as the Opinion's author; with no author line, the author
+is None.
+
+A short first run (under `_HEADNOTE_RUN` markers) before a restart, with no author line, may not
+be an Opinion. It is dropped in two cases: it does not start right after the delivery line (it
+is the headnote's points), or it is an index (dot leaders to page numbers). A short Order right
+after the delivery line stays as Opinion 1.
 
 Bench size: the coram block is the first bracketed list of judges ending in `J.`, `JJ.`, `CJ.`
 or `CJI` on the Judgment's first page (`[M.M. PUNCHHI AND K. VENKATASWAMI, JJ.]`), not preceded
