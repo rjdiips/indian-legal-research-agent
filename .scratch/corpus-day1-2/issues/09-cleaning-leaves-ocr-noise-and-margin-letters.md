@@ -13,7 +13,7 @@ Keep cleaning reversible: only drop raw characters, so the offset map stays exac
 **Status:** resolved
 
 - [x] Golden test on `2014_14_185_186` (or a fixture made from it): no noise block, no `h`, `s·` or leading `B` margin letters, offset map still exact.
-- [ ] Symbol-noise lines drop from 1,330 to near zero on the real corpus; table lines with dates and figures stay.
+- [x] Symbol-noise lines drop from 1,330 to near zero on the real corpus; table lines with dates and figures stay.
 - [x] Leftover page-header lines drop from 196 to near zero.
 - [x] Re-run `clean-text` and the report; note any change in paragraph or Bench size numbers.
 

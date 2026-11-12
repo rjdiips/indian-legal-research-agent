@@ -9,8 +9,8 @@ An Opinion starts where paragraph numbering restarts at 1 after a run, usually a
 **Status:** resolved
 
 - [x] Every paragraph belongs to exactly one Opinion; Opinions are numbered from 1 in order of appearance, with the author stored when readable and NULL otherwise.
-- [ ] Golden test on 2023_16_1209_1524: five Opinions, each starting at paragraph 1, with no paragraph over 20,000 characters.
-- [ ] A single-Opinion Judgment is unchanged apart from carrying Opinion 1.
+- [x] Golden test on 2023_16_1209_1524: five Opinions, each starting at paragraph 1, with no paragraph over 20,000 characters.
+- [x] A single-Opinion Judgment is unchanged apart from carrying Opinion 1.
 - [x] Paragraph N of Opinion K can be fetched, and its text equals the cleaned-text slice.
 - [x] Re-run `clean-text` and the report; the report adds the share of Judgments with more than one Opinion.
 
