@@ -85,6 +85,27 @@ def test_page_headers_and_the_own_citation_line_are_removed(path, furniture):
         assert line not in text
 
 
+def test_page_headers_below_the_top_of_a_page_are_removed():
+    raw_text = (
+        "[2017] 9 S.C.R. 797\nFirst page.\f798\nA\nB\n1-1\nSUPREME COURT REP<?RTS\n[2017] 9 S.C.R.\n"
+        'the court held so.\nAnd God is Exalted in Power\nWise."\n[2017] 9 S.C.R.\n'
+        "Verse 224, as held in\n[1978] 2 S.C.R.\nand also in [2017] 9 S.C.R. 1200 it was said."
+    )
+    text = clean_text(raw_text, path="2017_9_797_1158").text
+
+    assert "REP<?RTS" not in text
+    assert text.count("[2017] 9 S.C.R.") == 1  # the citation to page 1200 of the same volume stays
+    assert "[1978] 2 S.C.R." in text  # a citation wrapped before its page number stays
+    assert 'Wise." Verse 224' in text.replace("\n", " ")
+
+
+@pytest.mark.parametrize("line", ["[2016) 11 S.C.R. I 03", "[2016] 11 S.C.R. IO3", "[2016] 11 S.C.R. l 03"])
+def test_the_own_citation_line_with_an_ocr_misread_page_number_is_removed(line):
+    text = clean_text(f"{line}\nP. M. ABUBAKAR v. STATE", path="2016_11_103_128").text
+
+    assert text == "P. M. ABUBAKAR v. STATE"
+
+
 def test_page_numbers_are_removed_but_footnotes_stay():
     text = clean("1983_3_321_336").text
 
@@ -98,6 +119,53 @@ def test_margin_letters_are_removed():
     assert not re.search(r"(?m)^[A-Hc]\s*$", text)
     assert "an oral gift by a father" in text  # was "an oral\nG gift by a father"
     assert "to be transferred by means" in text  # was "to be B\ntransferred"
+
+
+def test_a_block_of_ocr_symbol_noise_is_removed():
+    text = clean("2014_14_185_186").text
+
+    assert text.rstrip().endswith("Crl.MPs allowed.")  # the stamp's symbol lines followed it
+    assert "The following Order of the Court was passed" in text
+
+
+def test_tables_of_figures_and_contents_are_not_noise():
+    table = [
+        "12.03.2001 - 15.04.2002",
+        "Rs. 1,20,000/- (31.03.2005)",
+        "Submissions ........................................ 7",
+        "(e.g. 33 ××××××)",
+        "(t), (u), (v), (w), (x), (y), (z), (za),",
+    ]
+    noise = ["( ~ :. ,,.._; _:_~~;-::;;\\:·-~ ~", "• 1-", "~ ~:"]
+    text = clean_text("The figures are as follows.\n" + "\n".join(table + noise) + "\nThat ends it.").text
+
+    for line in table:
+        assert line in text
+    assert "~" not in text and "• 1-" not in text
+
+
+def test_misread_margin_letters_are_removed():
+    text = clean("2014_14_185_186").text
+
+    assert "of 2015) (Criminal Appeal" in text  # was "of 2015)\nh\n(Criminal Appeal"
+    assert "allowed. CRIMINALAPPELLATE" in text  # was "allowed.\nA\ns·\nc\nCRIMINALAPPELLATE"
+    assert "accordingly. Nidhi Jain" in text  # was "B Nidhi Jain"
+
+
+def test_a_margin_letter_inside_a_line_of_a_scan_is_removed():
+    # A scan whose text layer glues margin letters to its lines, one page.
+    raw_text = (
+        "the court held B\nC that the rule applies, which c included\nthe right to be heard. D\n"
+        "That ends the matter."
+    )
+    text = clean_text(raw_text)
+
+    assert "which included the right" in text.text
+    start = text.text.index("which included")
+    assert text.raw_span(start, start + len("which included")) == (
+        raw_text.index("which c"),
+        raw_text.index("which c") + len("which c included"),
+    )
 
 
 def test_hyphenation_and_line_wraps_are_joined():

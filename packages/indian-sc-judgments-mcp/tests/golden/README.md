@@ -7,3 +7,5 @@ exactly as `corpus/raw_text.py` writes it. Named `<path>.txt`.
   (`project-prds/data-gates/raw/legal/text/`), all `ocr`.
 - `2015_2_37_50`, `2015_7_1_9`, `2016_4_157_170` (`ocr`), `2019_18_990_994`, `2023_1_1105_1110`,
   `2023_4_585_595` (`born_digital`): ticket 03's extraction of the real corpus.
+- `2014_14_185_186` (`ocr`): ticket 09's example, from the real corpus; a stamp on page 2 comes out
+  as a block of symbol lines, and its margin letters are misread (`h`, `s·`, `B Nidhi Jain`).
