@@ -6,6 +6,7 @@ legal-agent ingest --tar-years none      # all metadata only
 legal-agent ingest --tar-years 1950-2026 # backfill older years (only new tars are fetched)
 legal-agent extract-text                 # raw text + Text quality for downloaded tars 2015-2026
 legal-agent extract-text --years 2020    # one Reporter year
+legal-agent clean-text                   # cleaned text, Pinpoint paragraphs, Bench size for all raw text
 """
 
 from __future__ import annotations
@@ -21,6 +22,8 @@ import psycopg
 from indian_sc_judgments_mcp.config import data_home
 from indian_sc_judgments_mcp.corpus.extract import Extracted
 from indian_sc_judgments_mcp.corpus.fetch import DEFAULT_TAR_YEARS
+from indian_sc_judgments_mcp.corpus.structure import Structured
+from legal_agent.clean import clean_texts
 from legal_agent.config import Settings
 from legal_agent.db.migrate import MIGRATIONS_DIR, migrate
 from legal_agent.extract import extract_text
@@ -67,6 +70,10 @@ def main(argv: list[str] | None = None) -> int:
         metavar="FROM-TO|YEAR",
         help=f"Reporter years whose downloaded English tar to extract (default {_DEFAULT_TAR_YEARS})",
     )
+    commands.add_parser(
+        "clean-text",
+        help="clean every extracted raw text; save Pinpoint paragraphs and Bench size (rerun-safe)",
+    )
     args = parser.parse_args(argv)
 
     settings = Settings()
@@ -78,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "extract-text":
             return _extract_text(conn, home, args.years)
+        if args.command == "clean-text":
+            return _clean_text(conn, home)
 
         with httpx.Client() as client:
             report = ingest_corpus(
@@ -111,6 +120,18 @@ def _extract_text(conn: psycopg.Connection, home: Path, years: tuple[int, ...]) 
         print(f"  {name:<24}{value}")
     for name in report.missing_from_tar:
         print(f"  in index, not in tar: {name}", file=sys.stderr)
+    return 0
+
+
+def _clean_text(conn: psycopg.Connection, home: Path) -> int:
+    def progress(result: Structured) -> None:
+        if result.error:
+            print(f"  {result.path}: {result.error}", file=sys.stderr)
+
+    report = clean_texts(conn, data_home=home, progress=progress)
+    print(f"cleaned text -> {home / 'text' / 'clean'}")
+    for name, value in report.counts.items():
+        print(f"  {name:<24}{value}")
     return 0
 
 

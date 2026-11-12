@@ -4,11 +4,11 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] For any span of cleaned text, the offset map recovers the matching raw span. Golden tests cover headers such as `[196112 S.C.R. 537`.
-- [ ] Each stored paragraph's text equals the matching slice of the cleaned text. A Judgment with no paragraph markers gets one unnumbered block.
-- [ ] Numbers inside paragraphs (citations, inline lists) don't create false paragraph splits in the golden set.
-- [ ] Bench size is `NULL` when unsure, never a default of 1. The evidence string is stored.
-- [ ] Golden tests across decades and both Text qualities cover paragraphs and single, division and constitution benches.
-- [ ] The cleaned text hash is stored, and the new schema is added through a new numbered migration.
+- [x] For any span of cleaned text, the offset map recovers the matching raw span. Golden tests cover headers such as `[196112 S.C.R. 537`.
+- [x] Each stored paragraph's text equals the matching slice of the cleaned text. A Judgment with no paragraph markers gets one unnumbered block.
+- [x] Numbers inside paragraphs (citations, inline lists) don't create false paragraph splits in the golden set.
+- [x] Bench size is `NULL` when unsure, never a default of 1. The evidence string is stored.
+- [x] Golden tests across decades and both Text qualities cover paragraphs and single, division and constitution benches.
+- [x] The cleaned text hash is stored, and the new schema is added through a new numbered migration.
