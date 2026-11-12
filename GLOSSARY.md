@@ -28,6 +28,10 @@ _Avoid_: Text confidence, scan quality
 The number of judges who heard a Judgment, read from its coram block. Unknown when it can't be read, never assumed to be one.
 _Avoid_: Judge count, panel size
 
+**Opinion**:
+One reasoned writing inside a Judgment, by one judge or by judges who join it, such as the leading, concurring or dissenting opinion. Every Judgment has at least one Opinion; Opinions are counted in the order they appear, and an Opinion's author is recorded when it can be read.
+_Avoid_: Separate judgment, concurrence (for the whole unit)
+
 **Pinpoint paragraph**:
-A numbered paragraph of a Judgment's cleaned text, the unit a citation or quote points to.
+A numbered paragraph of a Judgment's cleaned text, the unit a citation or quote points to. It is identified by its Opinion and its number, because paragraph numbers can restart in each Opinion.
 _Avoid_: Passage number, para ref
