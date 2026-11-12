@@ -43,6 +43,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import NamedTuple
+
+from indian_sc_judgments_mcp.corpus.clean import OCR_DIGITS
 
 MAX_BENCH = 15
 
@@ -77,7 +80,7 @@ class Paragraph:
 class Opinion:
     number: int  # 1, 2, ... in order of appearance
     author: str | None  # the author line as read (`SANJAY KISHAN KAUL, J.`); None when not found
-    start: int  # offsets into cleaned text; Opinions tile the whole text
+    start: int  # offsets into cleaned text; the Opinions cover the whole text with no gaps
     end: int
 
 
@@ -94,10 +97,7 @@ def body_start(text: str) -> int:
 
 
 def _number(token: str) -> int:
-    return int(token.translate(_OCR_NUMERALS).replace(" ", ""))
-
-
-_OCR_NUMERALS = str.maketrans("IlOo", "1100")
+    return int(token.translate(OCR_DIGITS).replace(" ", ""))
 
 
 def paragraphs(text: str) -> list[Paragraph]:
@@ -113,13 +113,13 @@ def paragraphs(text: str) -> list[Paragraph]:
     in_brackets = _numbered_chain(bracketed, text)
     if len(in_brackets) > max(len(starts), _SHORT_CHAIN - 1) and not _far(in_brackets, begin):
         starts = in_brackets
-    lead = [s for s in starts if s[2] == 1]  # the first Opinion's run
+    lead = [s for s in starts if s.opinion == 1]  # the first Opinion's run
     if (
         len(lead) < min(len(starts), _HEADNOTE_RUN)
         and (_far(lead, begin) or _is_index(text, lead))
-        and not _author(text, begin, starts[0][0])
+        and not _author(text, begin, starts[0].offset)
     ):
-        starts = [(start, number, opinion - 1) for start, number, opinion in starts[len(lead) :]]
+        starts = [s._replace(opinion=s.opinion - 1) for s in starts[len(lead) :]]
     if not starts:
         start = len(text) - len(text.lstrip())
         end = len(text.rstrip())
@@ -141,17 +141,17 @@ def paragraphs(text: str) -> list[Paragraph]:
 def opinions(text: str, paras: list[Paragraph]) -> list[Opinion]:
     """The Opinions of `paras` (from `paragraphs(text)`): each runs from its author line (or first
     paragraph) to the next Opinion; the first starts at 0 and the last ends at the end of the text."""
-    firsts = [p for i, p in enumerate(paras) if i == 0 or p.opinion != paras[i - 1].opinion]
+    openers = [p for i, p in enumerate(paras) if i == 0 or p.opinion != paras[i - 1].opinion]
     begin = body_start(text)
     out = []
-    for k, first in enumerate(firsts):
+    for k, opener in enumerate(openers):
         if k == 0:
             start = 0
-            author = _author(text, begin or max(0, first.start - _AUTHOR_NEAR), first.start)
+            author = _author(text, begin or max(0, opener.start - _AUTHOR_NEAR), opener.start)
         else:
-            start = paras[first.ordinal - 2].end
-            start += len(text[start : first.start]) - len(text[start : first.start].lstrip())
-            author = _author(text, start, first.start)
+            start = paras[opener.ordinal - 2].end
+            start += len(text[start : opener.start]) - len(text[start : opener.start].lstrip())
+            author = _author(text, start, opener.start)
         out.append(Opinion(k + 1, author and " ".join(author[0].split()), start, len(text)))
     return [
         Opinion(o.number, o.author, o.start, out[i + 1].start if i + 1 < len(out) else len(text))
@@ -176,37 +176,45 @@ def _author(text: str, lo: int, hi: int) -> re.Match[str] | None:
     return last
 
 
-def _far(starts: list[tuple[int, int, int]], begin: int) -> bool:
-    return not begin or not starts or starts[0][0] - begin > _FIRST_MARKER_REACH
+class _Marker(NamedTuple):
+    """A paragraph marker taken into the run."""
+
+    offset: int  # into cleaned text
+    number: int
+    opinion: int  # 1, 2, ... in order of appearance
 
 
-def _is_index(text: str, run: list[tuple[int, int, int]]) -> bool:
+def _far(starts: list[_Marker], begin: int) -> bool:
+    return not begin or not starts or starts[0].offset - begin > _FIRST_MARKER_REACH
+
+
+def _is_index(text: str, run: list[_Marker]) -> bool:
     """Half or more of the run's lines end in a dot leader and a page number (`Submissions .... 9`)."""
-    lines = [text[start:].partition("\n")[0] for start, *_ in run]
+    lines = [text[m.offset :].partition("\n")[0] for m in run]
     return 2 * sum(bool(_INDEX_ENTRY.search(line)) for line in lines) >= len(lines)
 
 
 _INDEX_ENTRY = re.compile(r"[.…·]{4,}\s*\d{1,3}\s*$")
 
 
-def _numbered_chain(candidates: list[tuple[int, int]], text: str) -> list[tuple[int, int, int]]:
+def _numbered_chain(candidates: list[tuple[int, int]], text: str) -> list[_Marker]:
     """The best run of markers in document order whose numbers rise by 1, or by up to
     `_MAX_STEP` where a marker was lost (OCR, a page break), starting at 1 or 2, and restarting
     at 1 after an author line in `text`, where a new Opinion begins. Best = most markers, less
     `_RESTART_COST` per restart, then fewest skipped numbers. A list of numbers quoted inside a
-    paragraph rarely beats the Judgment's own run. Returns (offset, number, Opinion) per taken marker."""
+    paragraph rarely beats the Judgment's own run."""
     best: dict[int, tuple[float, int]] = {}  # number -> (score, candidate index) of best chain end
     links: list[tuple[float, int, bool]] = []  # per candidate: (score, previous index or -1, restart)
-    done = (float("-inf"), -1)  # the best chain ending at any earlier candidate
+    best_end = (float("-inf"), -1)  # (score, candidate index) of the best chain so far
     for i, (_, number) in enumerate(candidates):
         score, prev, restart = (1.0, -1, False) if number in (1, 2) else (float("-inf"), -1, False)
         at = candidates[i][0]
         if (
             number == 1
-            and done[0] + 1 - _RESTART_COST > score
-            and _author(text, max(candidates[done[1]][0], at - _AUTHOR_REACH), at)
+            and best_end[0] + 1 - _RESTART_COST > score
+            and _author(text, max(candidates[best_end[1]][0], at - _AUTHOR_REACH), at)
         ):
-            score, prev, restart = done[0] + 1 - _RESTART_COST, done[1], True
+            score, prev, restart = best_end[0] + 1 - _RESTART_COST, best_end[1], True
         for step in range(1, _MAX_STEP + 1):
             if number - step in best:
                 s, j = best[number - step]
@@ -216,10 +224,10 @@ def _numbered_chain(candidates: list[tuple[int, int]], text: str) -> list[tuple[
         links.append((score, prev, restart))
         if score > float("-inf") and (number not in best or score > best[number][0]):
             best[number] = (score, i)
-            done = max(done, (score, i))
+            best_end = max(best_end, (score, i))
     if not best:
         return []
-    i = done[1]
+    i = best_end[1]
     chain = []
     while i >= 0:
         chain.append(i)
@@ -228,7 +236,7 @@ def _numbered_chain(candidates: list[tuple[int, int]], text: str) -> list[tuple[
     out, opinion = [], 1
     for i in chain:
         opinion += links[i][2]
-        out.append((*candidates[i], opinion))
+        out.append(_Marker(*candidates[i], opinion))
     return out
 
 
@@ -257,8 +265,9 @@ _CORAM_END = re.compile(
     r"|\b(J\s?J)\s*\.\s*\S(?=\s)"
 )
 _OPEN = re.compile(r"[\[\(\{]|\bI(?=[A-Z][.\s])")
-# `CJI` with OCR's `J`, `T` or `l` for `I`: `CJJ`, `CJT`, `CJl`, `C.J.l`.
-_TITLES = re.compile(r"\b(?:C\.?\s?J\.?\s?[IJTl]|C\.?\s?J|Dr|Mr|Mrs|Ms|Hon'?ble)\b\.?", re.I)
+# `CJ`, `CJI`, and `CJI` with OCR's `J`, `T` or `l` for `I`: `CJJ`, `CJT`, `CJl`, `C.J.l`.
+_CHIEF = r"C\.?\s?J\.?\s?[IJTl]?"
+_TITLES = re.compile(rf"\b(?:{_CHIEF}|Dr|Mr|Mrs|Ms|Hon'?ble)\b\.?", re.I)
 _SPLIT = re.compile(r",|;\s|\s&\s|\band\b", re.I)
 # A missing comma before a judge with two or more initials: `FAZAL ALI V.D. TULZAPURKAR`.
 _RUN_ON = re.compile(r"(?<=[A-Za-z]{2})\s+(?=[A-Z]\.\s?[A-Z]\.\s?[A-Z]{2})")
@@ -296,7 +305,7 @@ def bench_size(first_page: str) -> Bench:
 def _count(content: str, ending: str) -> int | None:
     kind = re.sub(r"[\s.]", "", ending).upper()
     kind = "JJ" if kind in ("JJ", "JI") else kind
-    has_chief = bool(re.search(r"\bC\.?\s?J\.?\s?[IJTl]?\b", content, re.I))
+    has_chief = bool(re.search(rf"\b{_CHIEF}\b", content, re.I))
     stripped = _TITLES.sub(" ", content)
     n = _names(stripped)
     if not _agrees(n, kind, has_chief):

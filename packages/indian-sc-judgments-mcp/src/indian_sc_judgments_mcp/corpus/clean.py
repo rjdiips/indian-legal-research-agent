@@ -36,6 +36,7 @@ import re
 import statistics
 import unicodedata
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 from indian_sc_judgments_mcp.corpus.raw_text import PAGE_BREAK
 
@@ -120,7 +121,7 @@ _CLOSE_NUMBER = re.compile(r"\d{1,3}\)")
 _HEADING = re.compile(r"(?:J\s?U\s?D\s?G\s?M\s?E\s?N\s?T|O\s?R\s?D\s?E\s?R|Judgment|Order)\s*:?")
 # Dot leaders, rules, ellipses and masks (`......`, `____`, `* * *`, `××××`): left out when
 # judging if a line is noise.
-_FILL = re.compile(r"[.…·•_*×\-—–=\s]{3,}")
+_LEADERS_AND_RULES = re.compile(r"[.…·•_*×\-—–=\s]{3,}")
 _SENTENCE_END = re.compile(r"[.:;?!\"”'’]$")
 # How far from a page's top or bottom furniture is looked for, not counting margin letters and noise.
 _TOP_LINES = 6
@@ -292,59 +293,70 @@ def _upper_share(t: str) -> float:
     return sum(c.isupper() for c in letters) / len(letters) if letters else 0.0
 
 
-def _own_citation(path: str | None) -> tuple[str, str] | None:
-    """(Reporter year, first page) from a `path` like `2017_7_348_348` or `S_1975_1_169_201`."""
-    m = _PATH.match(path or "")
-    return (m[1], m[3]) if m else None
+class _Citation(NamedTuple):
+    """The Judgment's own Reporter citation, from a `path` like `2017_7_348_348` or `S_1975_1_169_201`."""
+
+    year: str
+    volume: str
+    first_page: str
+    last_page: str
 
 
-def _page_range(path: str | None) -> range | None:
-    m = _PATH.match(path or "")
-    return range(int(m[3]), int(m[4]) + 1) if m and int(m[3]) <= int(m[4]) else None
+def _citation(path: str | None) -> _Citation | None:
+    m = re.match(r"(?:S_)?(\d{4})_(\d+)_(\d+)_(\d+)", path or "")
+    return _Citation(*m.groups()) if m else None
 
 
-_PATH = re.compile(r"(?:S_)?(\d{4})_(\d+)_(\d+)_(\d+)")
+def _page_range(own: _Citation | None) -> range | None:
+    if not own or int(own.first_page) > int(own.last_page):
+        return None
+    return range(int(own.first_page), int(own.last_page) + 1)
 
 
-def _is_stray_header(t: str, path: str | None, pages: range | None) -> bool:
-    """A page header line away from the top of a page: a "SUPREME COURT REPORTS" line with no
-    lowercase word, or a Reporter citation line of the Judgment's own year and volume with no page
-    number outside its pages (`[2017] 9 S.C.R.`)."""
+def _is_stray_header(t: str, own: _Citation | None, pages: range | None) -> bool:
+    """A page header line away from the top of a page. Two kinds count.
+
+    - A "SUPREME COURT REPORTS" line with no lowercase word.
+    - A Reporter citation line of the Judgment's own year and volume (`[2017] 9 S.C.R.`). Any page
+      number on it must be one of the Judgment's own pages.
+    """
     m = _REPORTS.search(t)
     if m and len(t) < 80 and not re.search(r"[a-z]{3}", t[: m.start()] + t[m.end() :]):
         return True
-    own = _PATH.match(path or "")
     if not own or not _SCR_LINE.fullmatch(t) or not re.search(_SCR, t, re.I):
         return False
     numbers = re.findall(r"\d+", t)
-    return numbers[:2] == [own[1], own[2]] and all(pages and int(n) in pages for n in numbers[2:])
+    return numbers[:2] == [own.year, own.volume] and all(pages and int(n) in pages for n in numbers[2:])
 
 
-def _is_own_citation_line(t: str, own: tuple[str, str] | None) -> bool:
+def _is_own_citation_line(t: str, own: _Citation | None) -> bool:
     t = _read_page_number(t)
     if not _SCR_LINE.fullmatch(t) or _FOOTNOTE.match(t) or not re.search(_SCR, t, re.I):
         return False
     if own is None:
         return True
     numbers = re.findall(r"\d+", t)
-    return own[0] in numbers and own[1] in numbers
+    return own.year in numbers and own.first_page in numbers
 
 
 def _read_page_number(t: str) -> str:
-    """Read an OCR'd page number after `S.C.R.` as digits: `S.C.R. I 03` -> `S.C.R. 103`."""
+    """Read the page number after `S.C.R.` as digits. The scan's text recognition (OCR) often reads
+    a digit as a letter: `S.C.R. I 03` -> `S.C.R. 103`."""
     m = re.search(_SCR, t, re.I)
     if not m or not re.fullmatch(r"[\dIlJiOo ]+", t[m.end() :].strip()):
         return t
-    return t[: m.end()] + " " + re.sub(r"\s", "", t[m.end() :].translate(_OCR_DIGITS))
+    return t[: m.end()] + " " + re.sub(r"\s", "", t[m.end() :].translate(OCR_DIGITS))
 
 
-_OCR_DIGITS = str.maketrans("IlJiOo", "111100")
+# Letters that OCR reads in place of digits: `I`, `l`, `J`, `i` for 1 and `O`, `o` for 0.
+OCR_DIGITS = str.maketrans("IlJiOo", "111100")
 
 
 def _drop_page_furniture(raw: str, pages: list[list[_Line]], path: str | None) -> None:
     tops = [{_norm(ln.text(raw)) for ln in lines[: 2 * _TOP_LINES + 8]} for lines in pages[1:]]
     recurring = {t for t in set().union(*tops) if len(t) >= 8 and sum(t in top for top in tops) >= 2}
-    page_range = _page_range(path)
+    own = _citation(path)
+    page_range = _page_range(own)
     for number, lines in enumerate(pages):
         keep_from, budget, title_seen = 0, _TOP_LINES, False
         for i, line in enumerate(lines):
@@ -365,9 +377,8 @@ def _drop_page_furniture(raw: str, pages: list[list[_Line]], path: str | None) -
             keep_to = i
         lines[:] = lines[keep_from:keep_to]
     for lines in pages:
-        lines[:] = [ln for ln in lines if not _is_stray_header(ln.text(raw), path, page_range)]
+        lines[:] = [ln for ln in lines if not _is_stray_header(ln.text(raw), own, page_range)]
     if pages:
-        own = _own_citation(path)
         first = pages[0]
         for i, line in enumerate(first[:_OWN_CITATION_LINES]):
             if _is_own_citation_line(line.text(raw), own):
@@ -385,20 +396,20 @@ def _alnum_share(t: str) -> tuple[int, float]:
 
 
 def _drop_symbol_noise(raw: str, pages: list[list[_Line]]) -> None:
-    """Drop blocks of OCR noise from a stamp or smudge: runs of lines that are mostly symbols and,
-    together, hold 8 or more characters not counting dot leaders and rules (so a table of contents
-    stays)."""
+    """Drop blocks of OCR noise from a stamp or smudge. Such a block is a run of lines that are
+    mostly symbols. Together, its lines hold 8 or more characters, not counting dot leaders and
+    rules. So a table of contents stays."""
     for lines in pages:
         kept = []
-        for weak, run in itertools.groupby(lines, lambda ln: _is_weak(ln.text(raw))):
+        for mostly_symbols, run in itertools.groupby(lines, lambda ln: _is_mostly_symbols(ln.text(raw))):
             run = list(run)
-            n, share = _alnum_share(_FILL.sub("", " ".join(ln.text(raw) for ln in run)))
-            if not (weak and n >= 8 and share < 0.4):
+            n, share = _alnum_share(_LEADERS_AND_RULES.sub("", " ".join(ln.text(raw) for ln in run)))
+            if not (mostly_symbols and n >= 8 and share < 0.4):
                 kept += run
         lines[:] = kept
 
 
-def _is_weak(t: str) -> bool:
+def _is_mostly_symbols(t: str) -> bool:
     return _alnum_share(t)[1] < 0.4 and not _PARA_NUMBER.fullmatch(t)
 
 
