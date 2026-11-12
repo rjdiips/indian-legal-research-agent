@@ -16,8 +16,9 @@ then `1.`, or `V. GOPALA GOWDA, J. 1. I have ...` on one line). A restart counts
 author line at most `_AUTHOR_REACH` before it, so a numbered list quoted in a paragraph
 (witnesses, a schedule, an Act) stays inside it. A restart costs `_RESTART_COST` markers, so each
 side of it needs two or more. A first run under `_HEADNOTE_RUN` markers with no author line,
-before a restart, is the headnote's points or an index (the delivery line was not found), and is
-dropped. Each paragraph carries its Opinion's number; the author line (`NAME, J.`, `NAME, CJI`
+before a restart, is dropped when it does not start right after the delivery line (it is the
+headnote's points) or when it is an index (dot leaders to page numbers). A short Order right
+after the delivery line stays as Opinion 1. Each paragraph carries its Opinion's number; the author line (`NAME, J.`, `NAME, CJI`
 ending its line, `(Per Nariman, J.)`) ends the paragraph before it, starts the new Opinion and is
 kept as its author, else the author is None.
 
@@ -107,9 +108,13 @@ def paragraphs(text: str) -> list[Paragraph]:
     in_brackets = _numbered_chain(bracketed, text)
     if len(in_brackets) > max(len(starts), _SHORT_CHAIN - 1) and not _far(in_brackets, begin):
         starts = in_brackets
-    first = [s for s in starts if s[2] == 1]
-    if len(first) < min(len(starts), _HEADNOTE_RUN) and not _author(text, begin, starts[0][0]):
-        starts = [(start, number, opinion - 1) for start, number, opinion in starts[len(first) :]]
+    lead = [s for s in starts if s[2] == 1]  # the first Opinion's run
+    if (
+        len(lead) < min(len(starts), _HEADNOTE_RUN)
+        and (_far(lead, begin) or _is_index(text, lead))
+        and not _author(text, begin, starts[0][0])
+    ):
+        starts = [(start, number, opinion - 1) for start, number, opinion in starts[len(lead) :]]
     if not starts:
         start = len(text) - len(text.lstrip())
         end = len(text.rstrip())
@@ -168,6 +173,15 @@ def _author(text: str, lo: int, hi: int) -> re.Match[str] | None:
 
 def _far(starts: list[tuple[int, int, int]], begin: int) -> bool:
     return not begin or not starts or starts[0][0] - begin > _FIRST_MARKER_REACH
+
+
+def _is_index(text: str, run: list[tuple[int, int, int]]) -> bool:
+    """Half or more of the run's lines end in a dot leader and a page number (`Submissions .... 9`)."""
+    lines = [text[start:].partition("\n")[0] for start, *_ in run]
+    return 2 * sum(bool(_INDEX_ENTRY.search(line)) for line in lines) >= len(lines)
+
+
+_INDEX_ENTRY = re.compile(r"[.…·]{4,}\s*\d{1,3}\s*$")
 
 
 def _numbered_chain(candidates: list[tuple[int, int]], text: str) -> list[tuple[int, int, int]]:

@@ -344,6 +344,37 @@ def test_numbered_headnote_points_before_the_first_author_are_not_an_opinion():
     assert [o.author for o in opinions(text, paras)] == ["DEEPAK GUPTA, J."]
 
 
+def test_a_short_order_right_after_the_delivery_line_is_kept_as_opinion_one():
+    # From 2025_4_829_834: an Order on an application (paras 1-4), then the Judgment restarts at 1.
+    text = (
+        "The Judgment of the Court was delivered by\n"
+        + _numbered(1, 4, "The order")
+        + "Vikram Nath, J.\n"
+        + _numbered(1, 6, "The")
+    )
+
+    paras = paragraphs(text)
+
+    assert [(p.opinion, p.number) for p in paras] == [(1, n) for n in range(1, 5)] + [
+        (2, n) for n in range(1, 7)
+    ]
+
+
+def test_an_index_right_after_the_delivery_line_is_not_an_opinion():
+    # From 2023_7_26_84: an index with dot leaders to page numbers comes before the author line.
+    text = (
+        "The following Judgment of the Court was delivered: INDEX\n"
+        "1. Introduction to pay commissions .............................. 4\n"
+        "2. The Report and the Orders of this Court ...................... 5\n"
+        "3. Submissions of Counsel ....................................... 9\n"
+        "PAMIDIGHANTAM SRI NARASIMHA, J.\n" + _numbered(1, 6, "The")
+    )
+
+    paras = paragraphs(text)
+
+    assert [(p.opinion, p.number) for p in paras] == [(1, n) for n in range(1, 7)]
+
+
 def test_an_opinion_whose_first_paragraph_follows_the_author_on_one_line_is_found():
     # From 2015_14_927_974: `... a larger Bench. V. GOPALA GOWDA, J. 1. I have gone through ...`
     text = (
