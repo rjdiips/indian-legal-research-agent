@@ -399,6 +399,20 @@ def test_golden_same_sex_marriage_judgment_has_one_paragraph_run_per_opinion():
     assert all(o.start <= p.start < p.end <= o.end for p in paras for o in found if o.number == p.opinion)
 
 
+def test_opinion_ones_author_is_not_read_from_the_coram_when_the_delivery_line_is_missing():
+    # OCR lost the coram's closing bracket, and no delivery line is found.
+    text = (
+        "MAY 18, 2018 [RANJAN GOGOi, J.\nArbitration Act - s. 11(6): the appointment of an arbitrator "
+        "is made by the Chief Justice or his designate. Held: the application is allowed.\n"
+        "CIVIL ORIGINAL JURISDICTION: Arbitration Petition No. 12 of 2014.\n"
+        "A. Sharma, Adv. for the Petitioner. B. Rao, Adv. for the Respondent.\n" + _numbered(1, 6, "The")
+    )
+
+    paras = paragraphs(text)
+
+    assert [o.author for o in opinions(text, paras)] == [None]
+
+
 def test_a_single_opinion_judgment_is_opinion_one():
     text = cleaned("2019_18_990_994").text
 

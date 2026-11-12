@@ -132,10 +132,12 @@ def opinions(text: str, paras: list[Paragraph]) -> list[Opinion]:
     """The Opinions of `paras` (from `paragraphs(text)`): each runs from its author line (or first
     paragraph) to the next Opinion; the first starts at 0 and the last ends at the end of the text."""
     firsts = [p for i, p in enumerate(paras) if i == 0 or p.opinion != paras[i - 1].opinion]
+    begin = body_start(text)
     out = []
     for k, first in enumerate(firsts):
         if k == 0:
-            start, author = 0, _author(text, body_start(text), first.start)
+            start = 0
+            author = _author(text, begin or max(0, first.start - _AUTHOR_NEAR), first.start)
         else:
             start = paras[first.ordinal - 2].end
             start += len(text[start : first.start]) - len(text[start : first.start].lstrip())
@@ -217,6 +219,9 @@ _MAX_STEP = 3
 _RESTART_COST = 1.5
 # How far before a restart's `1.` its author line may be (an index may come between).
 _AUTHOR_REACH = 5000
+# With no delivery line, how far before paragraph 1 Opinion 1's author line may be. The coram
+# and the party lines lie further back, past the headnote and the counsel lines.
+_AUTHOR_NEAR = 200
 # A first run shorter than this, with no author line, before a restart is not an Opinion.
 _HEADNOTE_RUN = 10
 # How far after the delivery line the first paragraph marker may be (the author's name and a
