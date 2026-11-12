@@ -10,7 +10,5 @@ services:
     ports:
       - "5440:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./data/pgdata:/var/lib/postgresql/data  # all app files stay inside the repo
     # Schema comes from `legal-agent migrate`, not initdb, so applied files are tracked.
-volumes:
-  pgdata:

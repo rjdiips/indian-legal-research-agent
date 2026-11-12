@@ -23,7 +23,6 @@ from pathlib import Path
 import httpx
 import psycopg
 
-from indian_sc_judgments_mcp.config import data_home
 from indian_sc_judgments_mcp.corpus.extract import Extracted
 from indian_sc_judgments_mcp.corpus.fetch import DEFAULT_TAR_YEARS
 from indian_sc_judgments_mcp.corpus.structure import Structured
@@ -92,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     settings = Settings()
-    home = settings.sc_judgments_home or data_home()
+    home = settings.sc_judgments_home
     with psycopg.connect(settings.database_url, autocommit=True) as conn:
         if args.command == "migrate":
             applied = migrate(conn, MIGRATIONS_DIR)
