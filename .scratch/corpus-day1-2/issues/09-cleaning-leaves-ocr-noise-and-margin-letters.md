@@ -10,12 +10,12 @@ Keep cleaning reversible: only drop raw characters, so the offset map stays exac
 
 **Blocked by:** None
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Golden test on `2014_14_185_186` (or a fixture made from it): no noise block, no `h`, `s·` or leading `B` margin letters, offset map still exact.
+- [x] Golden test on `2014_14_185_186` (or a fixture made from it): no noise block, no `h`, `s·` or leading `B` margin letters, offset map still exact.
 - [ ] Symbol-noise lines drop from 1,330 to near zero on the real corpus; table lines with dates and figures stay.
-- [ ] Leftover page-header lines drop from 196 to near zero.
-- [ ] Re-run `clean-text` and the report; note any change in paragraph or Bench size numbers.
+- [x] Leftover page-header lines drop from 196 to near zero.
+- [x] Re-run `clean-text` and the report; note any change in paragraph or Bench size numbers.
 
 ## Comments
 
@@ -41,3 +41,9 @@ A "scan" here is a text where margin letters are glued to lines on half its page
 **Real text lost**: of 52.4 million words of 3 or more letters, 841 words in 170 texts are gone. They are "SUPREME COURT REPORTS" or "Digital Supreme Court Reports" header words, OCR noise, or word halves that now join (`Offic ers` → `Officers`, `show- c cause` → `show-cause`, `time- s lag` → `time-lag`).
 
 **Open**: most of the 1,271 lone letters left are `c` margin letters in 2016–2017 texts that glue too few margin letters to count as scans. The paragraph and Bench size numbers are not measured here. They come with the re-run of `clean-text` and the report.
+
+### Coordinator: final run
+
+Final run on main (ca6057c, Snapshot 0679ec43c648, `clean-text` + `report` on 2026-11-12): paragraphs 281,326, numbered Judgments 8,931, Bench size unknown 55, over-long paragraphs 366. These numbers include tickets 06, 07 and 10, so the share due to cleaning alone is not split out.
+
+Box 2 is left unticked on purpose: by the ticket's own measure the count goes 1,331 → 1,257, because about 1,200 of those lines are real text (tables of contents, dot leaders, ellipses, masked numbers) that must stay. True noise lines go 50 → 3. Tick it if you accept that reading.

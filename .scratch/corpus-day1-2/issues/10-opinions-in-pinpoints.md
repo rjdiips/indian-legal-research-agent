@@ -6,13 +6,13 @@ An Opinion starts where paragraph numbering restarts at 1 after a run, usually a
 
 **Blocked by:** 07
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Every paragraph belongs to exactly one Opinion; Opinions are numbered from 1 in order of appearance, with the author stored when readable and NULL otherwise.
+- [x] Every paragraph belongs to exactly one Opinion; Opinions are numbered from 1 in order of appearance, with the author stored when readable and NULL otherwise.
 - [ ] Golden test on 2023_16_1209_1524: five Opinions, each starting at paragraph 1, with no paragraph over 20,000 characters.
 - [ ] A single-Opinion Judgment is unchanged apart from carrying Opinion 1.
-- [ ] Paragraph N of Opinion K can be fetched, and its text equals the cleaned-text slice.
-- [ ] Re-run `clean-text` and the report; the report adds the share of Judgments with more than one Opinion.
+- [x] Paragraph N of Opinion K can be fetched, and its text equals the cleaned-text slice.
+- [x] Re-run `clean-text` and the report; the report adds the share of Judgments with more than one Opinion.
 
 ## Comments
 
@@ -38,3 +38,11 @@ An Opinion starts where paragraph numbering restarts at 1 after a run, usually a
 - When one judge's writing restarts at 1 (an Order after the Opinion, or a second part), it becomes a separate Opinion with the same author (for example 2023_6_655_668). The Pinpoint stays unique, which ADR-0003 needs.
 - Opinion 1's author is often None, because its author is on the delivery line, not on a line of its own.
 - A table-of-contents `I.` is still read as paragraph 1 (the CJI's and Bhat J.'s Opinions in 2023_16_1209_1524). This is older behavior, not changed here.
+
+### Coordinator: final run
+
+Final run on main (ca6057c, Snapshot 0679ec43c648, `clean-text` + `report` on 2026-11-12): the report shows "With more than one Opinion: 181 (2.0%)". Paragraph N of Opinion K is fetched by `legal_agent.db.corpus.pinpoint_paragraph(conn, data_home, path, number, opinion=1)`.
+
+Two boxes are left unticked on purpose:
+- Box 2 says five Opinions. 2023_16_1209_1524 has four (Kohli J. joined Bhat J.; no own author line). The golden test checks four runs, none over 20,000 characters. ADR-0003 is corrected to four.
+- Box 3: after the code-review fix, 2021_1_681_693 and 2025_4_829_834 correctly become two-Opinion Judgments (an Order, then a Judgment). 2023_7_26_84 changes because an index was wrongly read as paras 1–4 before. Three more (2017_8_388_427, 2020_11_896_947, 2023_10_289_367) change because their delivery line is now found, so headnote points are no longer read as paragraphs. All were checked by eye and are better than before, but they are not "unchanged".

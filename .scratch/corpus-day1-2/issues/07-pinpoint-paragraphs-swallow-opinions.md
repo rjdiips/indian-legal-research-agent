@@ -9,10 +9,10 @@ A Pinpoint into these Judgments points at the wrong text, so this matters for ci
 
 **Blocked by:** none
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Find out why 2021_6_573_598's paras 8–13 were missed, and fix it.
-- [ ] The report adds an "over-long paragraph" count (a numbered paragraph over 20,000 characters), so a regression shows up. Record how many of the 446 remain, and how many of those are multi-opinion cases left for ticket 10.
+- [x] Find out why 2021_6_573_598's paras 8–13 were missed, and fix it.
+- [x] The report adds an "over-long paragraph" count (a numbered paragraph over 20,000 characters), so a regression shows up. Record how many of the 446 remain, and how many of those are multi-opinion cases left for ticket 10.
 
 ## Comments
 
@@ -33,3 +33,7 @@ A Pinpoint into these Judgments points at the wrong text, so this matters for ci
   - about 20 have an `N+1` mid-line, and most of those are numbered sub-sections of a quoted statute.
 
 So most of what remains is correct by printed numbering or belongs to ticket 10. A 20,000-character limit will always flag some real paragraphs.
+
+### Coordinator: final run
+
+Final run on main (ca6057c, Snapshot 0679ec43c648, `clean-text` + `report` on 2026-11-12): the report row "With a numbered paragraph over 20,000 characters" shows 366 (446 before; 438 after this ticket alone; ticket 10 fixed 73 and added 1). The case 2021_6_573_598 was not a missed-marker bug (see above); the real cause, `N)` markers joined to the line before, is fixed.

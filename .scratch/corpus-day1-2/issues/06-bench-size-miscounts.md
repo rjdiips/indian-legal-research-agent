@@ -9,11 +9,11 @@
 
 **Blocked by:** none
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A one-name block (`J.`, `CJI`) is not read as the coram; the parser looks for the bench block, or leaves NULL.
-- [ ] OCR variants of `CJI` (`CJJ`, `CJT`, `CJl`, `C.J.l`) are read as `CJI`.
-- [ ] Re-run `legal-agent clean-text` and `legal-agent report`: no size 1, 4, 6 or 8 left unexplained; sample the 130 unknowns and record why they are unknown.
+- [x] A one-name block (`J.`, `CJI`) is not read as the coram; the parser looks for the bench block, or leaves NULL.
+- [x] OCR variants of `CJI` (`CJJ`, `CJT`, `CJl`, `C.J.l`) are read as `CJI`.
+- [x] Re-run `legal-agent clean-text` and `legal-agent report`: no size 1, 4, 6 or 8 left unexplained; sample the 130 unknowns and record why they are unknown.
 
 ## Comments
 
@@ -57,3 +57,7 @@ Why 55 stay unknown:
 - About 10 have no coram on page 1 at all. Page 1 holds only the case title and the case number, or it is a cover page (`20161 JO S.C.R.`, `16 A`).
 
 Open: a rule tied to the date could read the damaged blocks. It would take the names after the date, up to `JJ`. That is a bigger change, and each case needs its own check, so this ticket does not make it.
+
+### Coordinator: final run
+
+Final run on main (ca6057c, Snapshot 0679ec43c648, `clean-text` + `report` on 2026-11-12): Bench size 1: 3, 4: 0, 6: 0, 8: 1, unknown: 55 (was 9 / 2 / 2 / 1 / 130). The three size-1 and the one size-8 Judgments are explained above. 2010s Bench size known: 96.9% → 98.8%. The code-review fix (ca6057c) makes a one-name block count only when no later block exists; it changed no size on the corpus.
