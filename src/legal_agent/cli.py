@@ -7,6 +7,8 @@ legal-agent ingest --tar-years 1950-2026 # backfill older years (only new tars a
 legal-agent extract-text                 # raw text + Text quality for downloaded tars 2015-2026
 legal-agent extract-text --years 2020    # one Reporter year
 legal-agent clean-text                   # cleaned text, Pinpoint paragraphs, Bench size for all raw text
+legal-agent report                       # write reports/corpus-<snapshot>.md for the latest Snapshot
+legal-agent run                          # all of the above for 2015-2026, then the report
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from legal_agent.config import Settings
 from legal_agent.db.migrate import MIGRATIONS_DIR, migrate
 from legal_agent.extract import extract_text
 from legal_agent.ingest import ingest_corpus
+from legal_agent.pipeline import run_corpus, write_report
 
 _DEFAULT_TAR_YEARS = f"{DEFAULT_TAR_YEARS.start}-{DEFAULT_TAR_YEARS.stop - 1}"
 
@@ -74,6 +77,10 @@ def main(argv: list[str] | None = None) -> int:
         "clean-text",
         help="clean every extracted raw text; save Pinpoint paragraphs and Bench size (rerun-safe)",
     )
+    commands.add_parser("report", help="write the run report for the latest Snapshot to reports/")
+    commands.add_parser(
+        "run", help="ingest, extract-text and clean-text for English tars 2015-2026, then report"
+    )
     args = parser.parse_args(argv)
 
     settings = Settings()
@@ -87,6 +94,13 @@ def main(argv: list[str] | None = None) -> int:
             return _extract_text(conn, home, args.years)
         if args.command == "clean-text":
             return _clean_text(conn, home)
+        if args.command == "report":
+            print(f"report -> {write_report(conn)}")
+            return 0
+        if args.command == "run":
+            with httpx.Client() as client:
+                print(f"report -> {run_corpus(conn, client=client, data_home=home)}")
+            return 0
 
         with httpx.Client() as client:
             report = ingest_corpus(
