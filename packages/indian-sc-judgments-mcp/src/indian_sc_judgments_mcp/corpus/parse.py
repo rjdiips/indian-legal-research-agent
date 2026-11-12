@@ -18,6 +18,9 @@ by prose (a lowercase word, as in "the High Court (Falshaw and Soni JJ.)"). Judg
 splitting on commas, `and` and `&` after dropping titles. The count is kept only when it agrees
 with the ending (`JJ.` needs two or more, `J.` or `CJ.` alone exactly one) and is at most 15;
 otherwise, or with no block, Bench size is unknown (`None`). The block is kept as evidence.
+A block of one judge is often an Opinion's author (`[DIPAK MISRA, CJI]` in a connected case's
+title, `(Per Nariman, J.)`), so it counts only when no later block names two or more; a block
+starting `Per` is never the coram. OCR forms of `CJI` (`CJJ`, `CJT`, `CJl`, `C.J.l`) are titles.
 """
 
 from __future__ import annotations
@@ -139,21 +142,27 @@ _SHORT_CHAIN = 5
 
 
 # `JJ.`, `J.`, `CJ.`, `CJI` and their OCR forms, closing the coram block: `JJ.]`, `JJ .]`,
-# `JJ.)`, `JJ.J`, `JJ.j`, `JJ;]`.
+# `JJ.)`, `JJ.J`, `JJ.j`, `JJ,j`, `JJ;]`; after `JJ.` any one mark: `JJ.I`, `JJ.f`, `JJ.(`.
 _CORAM_END = re.compile(
-    r"\b(J\s?\.?\s?J|JI|C\.?\s?J\.?\s?I|CJI|C\.?\s?J|J)(?:\s*[,;:]?\s*[\]\)\}|]|\s*\.\s*[;:]?\s*(?:[\]\)\}|]|[Jjl]\b))"
+    r"\b(J\s?\.?\s?J|JI|C\.?\s?J\.?\s?I|CJI|C\.?\s?J|J)(?:\s*[,;:]?\s*[\]\)\}|]|\s*[.,]\s*[;:]?\s*(?:[\]\)\}|]|[Jjl]\b))"
+    r"|\b(J\s?J)\s*\.\s*\S(?=\s)"
 )
 _OPEN = re.compile(r"[\[\(\{]|\bI(?=[A-Z][.\s])")
-_TITLES = re.compile(r"\b(?:C\.?\s?J\.?\s?I|CJI|C\.?\s?J|Dr|Mr|Mrs|Ms|Hon'?ble)\b\.?", re.I)
+# `CJI` with OCR's `J`, `T` or `l` for `I`: `CJJ`, `CJT`, `CJl`, `C.J.l`.
+_TITLES = re.compile(r"\b(?:C\.?\s?J\.?\s?[IJTl]|C\.?\s?J|Dr|Mr|Mrs|Ms|Hon'?ble)\b\.?", re.I)
 _SPLIT = re.compile(r",|;\s|\s&\s|\band\b", re.I)
 # A missing comma before a judge with two or more initials: `FAZAL ALI V.D. TULZAPURKAR`.
 _RUN_ON = re.compile(r"(?<=[A-Za-z]{2})\s+(?=[A-Z]\.\s?[A-Z]\.\s?[A-Z]{2})")
-# `AND` run into a name by OCR: `EQBALAND C. NAGAPPAN`, `ANDS.A. BOBDE`, `MISRAAND R.`
-_GLUED_AND = re.compile(r"AND(?=\s|[A-Z]\.)|(?<=[A-Z]\.)AND")
+# `AND` run into a name by OCR: `EQBALAND C. NAGAPPAN`, `ANDS.A. BOBDE`, `MISRAAND R.`,
+# `EQBALANDAMITAVA`; or misread: `A~D`, `~ND`.
+_GLUED_AND = re.compile(
+    r"AND(?=\s|[A-Z]\.)|(?<=[A-Z]\.)AND|(?<=[A-Z]{4})AND(?=[A-Z]{4})|\s(?:A\WD|\W{1,2}ND)\s"
+)
 
 
 def bench_size(first_page: str) -> Bench:
     """Bench size from the coram block on a Judgment's first page of cleaned text."""
+    first = None
     for end in _CORAM_END.finditer(first_page):
         head = first_page[max(0, end.start() - 400) : end.start()]
         opens = list(_OPEN.finditer(head))
@@ -161,21 +170,24 @@ def bench_size(first_page: str) -> Bench:
             continue
         opening = opens[-1]
         content = head[opening.end() :]
-        if re.search(r"[\]\)\}]", content):
-            continue
+        if re.search(r"[\]\)\}]", content) or re.match(r"\s*Per\b", content):
+            continue  # `(Per Nariman, J.)` names an Opinion's author
         before = head[: opening.start()].rstrip()
         if before and (before[-1].islower() or before[-1] == ","):
             continue
-        block_start = max(0, end.start() - 400) + opening.start()
-        evidence = " ".join(first_page[block_start : end.end()].split())
-        return Bench(_count(content, end[1]), evidence)
-    return Bench(None, None)
+        evidence = " ".join(first_page[max(0, end.start() - 400) + opening.start() : end.end()].split())
+        bench = Bench(_count(content, end[1] or end[2]), evidence)
+        if bench.size == 1 or (first and bench.size is None):
+            first = first or bench
+            continue
+        return bench
+    return first or Bench(None, None)
 
 
 def _count(content: str, ending: str) -> int | None:
     kind = re.sub(r"[\s.]", "", ending).upper()
     kind = "JJ" if kind in ("JJ", "JI") else kind
-    has_chief = bool(re.search(r"\bC\.?\s?J\.?\s?I?\b|\bCJI\b", content, re.I))
+    has_chief = bool(re.search(r"\bC\.?\s?J\.?\s?[IJTl]?\b", content, re.I))
     stripped = _TITLES.sub(" ", content)
     n = _names(stripped)
     if not _agrees(n, kind, has_chief):

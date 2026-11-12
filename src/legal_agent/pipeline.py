@@ -137,6 +137,23 @@ def write_report(
             )
         ),
         "",
+        "## Judgments without an English PDF",
+        "",
+        "In those Reporter years' metadata, but in no English tar. Known upstream gaps: "
+        "`docs/known-bucket-gaps.md`.",
+        "",
+        *(
+            [
+                f"- `{path}`"
+                for (path,) in q.all(
+                    "SELECT path FROM judgments WHERE snapshot_id = %(s)s AND reporter_year = ANY(%(tars)s)"
+                    " AND raw_snapshot_id IS DISTINCT FROM %(s)s ORDER BY path",
+                    tars=tars,
+                )
+            ]
+            or ["None."]
+        ),
+        "",
         "## Extraction errors",
         "",
         *_errors(q, "text_error", "raw_snapshot_id"),

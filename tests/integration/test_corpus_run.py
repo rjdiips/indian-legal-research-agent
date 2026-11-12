@@ -104,6 +104,14 @@ def test_the_report_counts_judgments_with_an_over_long_paragraph(conn, run, tmp_
     assert "| With a numbered paragraph over 20,000 characters | 1 |" in report
 
 
+def test_the_report_lists_judgments_in_those_years_without_an_english_pdf(conn, run):
+    report = run().read_text()
+
+    section = report.split("## Judgments without an English PDF")[1].split("##")[0]
+    assert "`2099_1_2_2`" in section  # in the metadata, not in the tar
+    assert "`2024_4_598_605`" not in section
+
+
 def test_a_rerun_changes_nothing(conn, run):
     first_path = run()
     first = _state(conn), first_path.read_text()

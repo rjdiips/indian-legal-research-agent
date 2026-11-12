@@ -89,6 +89,78 @@ def test_bench_size_reads_common_coram_forms(coram, size):
     assert bench_size(f"OCTOBER 16, 2015\n{coram}\nService Law").size == size
 
 
+@pytest.mark.parametrize(
+    ("coram", "size"),
+    [
+        ("[T. S. THAKUR, CJJ, DR. D. Y. CHANDRACIIUD AND L. NAGESWARA RAO, .JJ.J", 3),
+        ("[DIPAK MISRA, CJJ, R. BANUMATHI AND ASHOK BHUSHAN, JJ.)", 3),
+        ("[DIPAK MISRA, CJT, A. K. SIKRI, A. M. KHANWILKAR, DR. D. Y. CHANDRACHUD AND ASHOK BHUSHAN, "
+         "JJ.]", 5),
+        ("[Dr Dnhananjaya Y Chandrachud,* CJl, 8 R Gavai, Surya Kant, J B Pardiwala and Manoj Misra, "
+         "JJ.]", 5),
+        ("[DIPAK MISRA CJI, AMITAVA ROY AND A. M. KHANWILKAR, JJ.]", 3),
+    ],
+)  # fmt: skip
+def test_ocr_forms_of_cji_are_a_title_not_a_judge(coram, size):
+    assert bench_size(f"FEBRUARY 16, 2018 {coram} Inter-State Water Disputes:").size == size
+
+
+# First pages from the real corpus where a one-judge block comes before the bench's coram.
+@pytest.mark.parametrize(
+    ("page", "size", "evidence"),
+    [
+        (  # 2018_5_1127_1150: a connected case's title carries its author
+            "STATE OF KARNATAKA BY ITS CHIEF SECRETARY v. STATE OF T. N. BY ITS CHIEF SECRETARY "
+            "[DIPAK MISRA, CJI] STATE OF TAMIL NADU v.\nP. K. SINHA AND ANR.\n(Contempt Petition (Civil) "
+            "No. 898 of 2018 In Civil Appeal No. 2453 of 2007) MAY 18, 2018 [DIPAK MISRA, CJI, "
+            "A. M. KHANWILKAR AND DR. D.Y. CHANDRACHUD, JJ.] Inter-State Water Disputes:",
+            3,
+            "[DIPAK MISRA, CJI, A. M. KHANWILKAR AND DR. D.Y. CHANDRACHUD, JJ.]",
+        ),
+        (  # 2017_1_158_260: OCR read the CJI's title as the block's end
+            "(Civil Appeal No. 37of1992) JANUARY 02, 2017 [T. S. THAKUR, C.J.l., MADAN B. LOKUR, "
+            "S. A. BOBDE, ADARSH KUMAR GOEL, UDAY UMESH LALIT, DR. D.Y. CHANDRACHUD AND "
+            "L. NAGESWARA RAO, JJ.) Representation of the People Act, 1951:",
+            7,
+            "[T. S. THAKUR, C.J.l., MADAN B. LOKUR, S. A. BOBDE, ADARSH KUMAR GOEL, UDAY UMESH LALIT, "
+            "DR. D.Y. CHANDRACHUD AND L. NAGESWARA RAO, JJ.)",
+        ),
+        (  # 2017_9_797_1158: the coram ends `JJ,j`; the headnote names each opinion's author
+            "AUGUST 22, 2017 [JAGDISH SINGH KHEHAR, CJI, KURIAN JOSEPH, R. F. NARIMAN, UDAY .UMESH LALIT "
+            "AND S. ABDUL NAZEER, JJ,j MAJORITY OPINION Muslim Law: Talaq-e-biddat - set aside. "
+            "(Per Court) Art.13(1). (Per Nariman, J.) Muslim Law: Sunnis - Discussed.",
+            5,
+            "[JAGDISH SINGH KHEHAR, CJI, KURIAN JOSEPH, R. F. NARIMAN, UDAY .UMESH LALIT AND "
+            "S. ABDUL NAZEER, JJ,j",
+        ),
+    ],
+)  # fmt: skip
+def test_a_one_judge_block_gives_way_to_a_later_bench_block(page, size, evidence):
+    assert bench_size(page) == Bench(size, evidence)
+
+
+# From the real corpus (mostly 2017 OCR): the bracket closing a `JJ.` block read as another mark.
+@pytest.mark.parametrize(
+    ("coram", "size"),
+    [
+        ("[DIPAK MISRA AND R. BANUMATHI, JJ.I", 2),
+        ("[DIPAK MISRA AND A.M. KHANWILKAR, JJ.f", 2),
+        ("[KURIAN JOSEPH AND R. BANUMATHI, JJ.[", 2),
+        ("[JAGDISH SINGH KHEHAR, CJI, DR. D.Y. CHANDRACHUD AND L. NAGESWARA RAO, JJ.t", 3),
+        ("(ANIL R. DAVE, KURIAN JOSEPH AND AMITAVA ROY, JJ.(", 3),
+        ("[M.Y. EQBALANDAMITAVA ROY, JJ.]", 2),  # OCR ran AND into both names
+        ("[SHIVA KIRTI SINGH A~D R. BANUMATHI, JJ.]", 2),
+        ("[RANJAN GOGOi ~ND ASIIOK BHUSIIAN, JJ.)", 2),
+    ],
+)  # fmt: skip
+def test_bench_size_reads_ocr_damaged_coram_blocks(coram, size):
+    assert bench_size(f"FEBRUARY 14, 2017 {coram} Penal Code, 1860 - ss. 300").size == size
+
+
+def test_an_opinion_author_line_is_not_a_coram():
+    assert bench_size("Discussed. (Per Nariman, J.) Muslim Law: Sunnis - Discussed.") == Bench(None, None)
+
+
 def test_bench_size_is_never_a_default_of_one():
     assert bench_size("No coram block on this page at all.") == Bench(None, None)
 
