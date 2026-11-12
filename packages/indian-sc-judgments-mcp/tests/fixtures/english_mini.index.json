@@ -1,0 +1,19 @@
+{
+  "year": 2099,
+  "archive_type": "english",
+  "file_count": 6,
+  "parts": [
+    {
+      "name": "english.tar",
+      "files": [
+        "S_1996_4_314_315_EN.pdf",
+        "S_2003_2_63_65_EN.pdf",
+        "2017_7_348_348_EN.pdf",
+        "2024_4_598_605_EN.pdf",
+        "2099_1_1_1_EN.pdf",
+        "2099_1_2_2_EN.pdf"
+      ],
+      "file_count": 6
+    }
+  ]
+}
