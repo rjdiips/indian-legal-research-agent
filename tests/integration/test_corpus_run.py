@@ -91,6 +91,19 @@ def test_the_report_names_its_snapshot_and_measures_the_corpus(conn, run):
     assert "| 2020s | 1 |" in report
 
 
+def test_the_report_counts_judgments_with_an_over_long_paragraph(conn, run, tmp_path):
+    assert "| With a numbered paragraph over 20,000 characters | 0 |" in run().read_text()
+    # A missed marker leaves a paragraph that swallows the ones after it.
+    conn.execute(
+        "UPDATE paragraphs SET char_end = char_start + 20001"
+        " WHERE path = '2024_4_598_605' AND number IN (1, 2)"
+    )
+
+    report = write_report(conn, tmp_path / "reports").read_text()
+
+    assert "| With a numbered paragraph over 20,000 characters | 1 |" in report
+
+
 def test_a_rerun_changes_nothing(conn, run):
     first_path = run()
     first = _state(conn), first_path.read_text()
