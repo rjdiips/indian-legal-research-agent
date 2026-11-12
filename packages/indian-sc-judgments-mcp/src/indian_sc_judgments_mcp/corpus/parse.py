@@ -9,7 +9,8 @@ lost) and starts at 1 or 2 is taken, so numbers inside a paragraph (a quoted par
 list, a wrapped citation) don't split it. A run of fewer than 5 that doesn't start right after
 the delivery line is a list, not paragraphs. A paragraph runs to the next taken marker (or the
 end of the text), trailing whitespace trimmed. With no run the whole text is one unnumbered block.
-Known gap: a second opinion that restarts at 1 stays inside the first opinion's last paragraph.
+Known gap: a second opinion that restarts at 1 stays inside the first opinion's last paragraph
+(ticket 10). A paragraph's decimal sub-paragraphs (`7.1`, `7.2`) stay inside it, as printed.
 
 Bench size: the coram block is the first bracketed list of judges ending in `J.`, `JJ.`, `CJ.`
 or `CJI` on the Judgment's first page (`[M.M. PUNCHHI AND K. VENKATASWAMI, JJ.]`), not preceded

@@ -24,6 +24,7 @@ from legal_agent.ingest import ingest_corpus
 
 REPORTS_DIR = Path(__file__).parents[2] / "reports"
 _LISTED = 50  # errors listed by path before truncating
+_OVER_LONG = 20_000  # characters; the corpus's 99th percentile numbered paragraph is about 8,700
 
 
 def run_corpus(
@@ -62,6 +63,12 @@ def write_report(
         " count(clean_error) FILTER (WHERE clean_snapshot_id = %(s)s)"
         " FROM judgments",
         tars=tars,
+    )
+    (over_long,) = q.one(
+        "SELECT count(DISTINCT j.path) FROM judgments j JOIN paragraphs p ON p.path = j.path"
+        " WHERE j.clean_snapshot_id = %(s)s AND j.clean_text_sha256 IS NOT NULL"
+        " AND p.number IS NOT NULL AND p.char_end - p.char_start > %(long)s",
+        long=_OVER_LONG,
     )
     lines = [
         f"# Corpus run: Snapshot `{snapshot_id}`",
@@ -113,6 +120,11 @@ def write_report(
                 " GROUP BY 1 ORDER BY 1"
             )
         ),
+        "",
+        # A numbered paragraph this long often holds a missed marker or a second Opinion (tickets 07, 10).
+        "| Paragraph check | Judgments |",
+        "|---|---|",
+        f"| With a numbered paragraph over {_OVER_LONG:,} characters | {over_long} |",
         "",
         "| Bench size | Judgments |",
         "|---|---|",

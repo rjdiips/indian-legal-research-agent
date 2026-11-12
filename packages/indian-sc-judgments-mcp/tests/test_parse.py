@@ -191,6 +191,7 @@ def test_each_paragraphs_text_is_its_slice_of_cleaned_text(path):
         ("2023_1_1105_1110", 18, "(1) The relief sought for in the transfer petition"),
         ("2023_4_585_595", 27, "(1) Applications for intervention and impleadment are allowed."),
         ("2024_4_598_605", 10, "1. The Appellant-State of Madhya Pradesh"),
+        ("2025_4_2742_2752", 25, "1) Leave granted."),  # `1)` alone on its line, text on the next
     ],
 )
 def test_golden_numbered_paragraphs(path, count, first):
@@ -239,6 +240,39 @@ def test_an_ocr_misread_paragraph_number_is_taken():
     paras = {p.number: p for p in paragraphs(cleaned("2016_4_157_170").text)}
 
     assert paras[10].text.startswith("I 0. Even though there were ten participants")
+
+
+def test_a_bracket_numbered_paragraph_after_a_full_line_and_a_margin_letter_is_taken():
+    # From 2015_5_542_578 (renumbered): its `7)` was joined onto paragraph 6's last line, so 6 ran
+    # 47,654 characters and swallowed paragraphs 7 to the end.
+    raw = (
+        "JUDGMENT\nA. K. SIKRI, J.\n1) Leave granted.\n"
+        "2) Simultaneously, second set of notifications were issued \n"
+        "for acquisition of land for development of residential urban \n"
+        "estate to adjust oustees of the above said road. According \n"
+        "necessary to acquire the land for development of residential \n"
+        "urban estate to rehabilitate such oustees. \nD \n"
+        "3) Insofar as first notification is concerned, it was \n"
+        "challenged on various grounds including the plea that the said \n"
+    )
+    paras = paragraphs(clean_text(raw).text)
+
+    assert [p.number for p in paras] == [1, 2, 3]
+    assert paras[-1].text.startswith("3) Insofar as first notification")
+
+
+@pytest.mark.parametrize("bracket", ["(para \n51)", "(Pg. \n183)"])  # 2016_5_884_892, 2022_12_761_796
+def test_a_wrapped_bracket_ending_in_a_number_does_not_hide_the_next_paragraph(bracket):
+    raw = (
+        "JUDGMENT\nDIPAK MISRA, J.\n1. Leave granted.\n"
+        "2. The applicant moved this Court. The facts are as under. It was observed that \n"
+        f'the judgment adversely affects the petitioner." {bracket} \n'
+        "3. The said jurisdiction because of its very nature has attracted the terminology \n"
+    )
+    paras = paragraphs(clean_text(raw).text)
+
+    assert [p.number for p in paras] == [1, 2, 3]
+    assert paras[1].text.endswith(" ".join(bracket.split()))
 
 
 def test_a_short_numbered_list_deep_in_an_unnumbered_judgment_is_not_paragraphs():
