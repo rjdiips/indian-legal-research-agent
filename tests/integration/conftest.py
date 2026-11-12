@@ -1,8 +1,13 @@
+import sys
 from collections.abc import Iterator
+from pathlib import Path
 
 import psycopg
 import pytest
 from testcontainers.community.postgres import PostgresContainer
+
+# Share the package's in-memory fake bucket (`fake_bucket.FakeBucket`) with these tests.
+sys.path.insert(0, str(Path(__file__).parents[2] / "packages" / "indian-sc-judgments-mcp" / "tests"))
 
 
 @pytest.fixture(scope="session")

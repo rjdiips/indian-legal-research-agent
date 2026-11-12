@@ -1,9 +1,16 @@
+import json
 from pathlib import Path
 
 import httpx
 import pytest
 
-from indian_sc_judgments_mcp.corpus.download import Pacer, PoliteFetcher, S3Object, list_objects
+from indian_sc_judgments_mcp.corpus.download import (
+    ManifestMismatch,
+    Pacer,
+    PoliteFetcher,
+    S3Object,
+    list_objects,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -88,3 +95,103 @@ def test_fetch_raises_on_server_error(tmp_path):
     with pytest.raises(httpx.HTTPStatusError):
         fetcher.fetch("https://bucket.example/k", tmp_path / "x.parquet")
     assert not (tmp_path / "x.parquet").exists()
+
+
+class _BreaksAfter(httpx.SyncByteStream):
+    """A response body that delivers `body[:n]` then drops the connection."""
+
+    def __init__(self, body: bytes, n: int) -> None:
+        self._body, self._n = body, n
+
+    def __iter__(self):
+        yield self._body[: self._n]
+        raise httpx.ReadError("connection dropped")
+
+
+TAR = b"0123456789" * 10  # a 100-byte stand-in for an English tar
+TAR_OBJ = S3Object("data/tar/year=2015/english/english.tar", len(TAR), '"tar-v1-5"')
+
+
+def test_an_interrupted_download_resumes_from_where_it_stopped(tmp_path):
+    seen: list[httpx.Request] = []
+    calls = iter(["drop", "rest"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if next(calls) == "drop":
+            return httpx.Response(200, stream=_BreaksAfter(TAR, 40), headers={"ETag": TAR_OBJ.etag})
+        return httpx.Response(
+            206,
+            content=TAR[40:],
+            headers={"ETag": TAR_OBJ.etag, "Content-Range": f"bytes 40-99/{len(TAR)}"},
+        )
+
+    fetcher = PoliteFetcher(httpx.Client(transport=httpx.MockTransport(handler)), pacer=Pacer(0))
+    dest = tmp_path / TAR_OBJ.key
+
+    with pytest.raises(httpx.ReadError):
+        fetcher.fetch("https://bucket.example/t", dest, expected=TAR_OBJ)
+    assert not dest.exists()
+    resumed = fetcher.fetch("https://bucket.example/t", dest, expected=TAR_OBJ)
+
+    assert seen[1].headers["range"] == "bytes=40-"
+    assert seen[1].headers["if-range"] == TAR_OBJ.etag
+    assert resumed.status == 206
+    assert resumed.resumed_from == 40
+    assert dest.read_bytes() == TAR
+
+
+def _serving(body: bytes, etag: str) -> PoliteFetcher:
+    handler = lambda r: httpx.Response(200, content=body, headers={"ETag": etag})  # noqa: E731
+    return PoliteFetcher(httpx.Client(transport=httpx.MockTransport(handler)), pacer=Pacer(0))
+
+
+def test_a_download_whose_size_differs_from_the_manifest_fails_loudly(tmp_path):
+    dest = tmp_path / TAR_OBJ.key
+
+    with pytest.raises(ManifestMismatch, match=r"size.*100.*99"):
+        _serving(TAR[:99], TAR_OBJ.etag).fetch("https://bucket.example/t", dest, expected=TAR_OBJ)
+    assert not dest.exists()
+
+
+def test_a_download_whose_etag_differs_from_the_manifest_fails_loudly(tmp_path):
+    dest = tmp_path / TAR_OBJ.key
+
+    with pytest.raises(ManifestMismatch, match="ETag"):
+        _serving(TAR, '"tar-v2-5"').fetch("https://bucket.example/t", dest, expected=TAR_OBJ)
+    assert not dest.exists()
+
+
+def test_a_local_copy_matching_the_manifest_is_not_requested_again(tmp_path):
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=TAR, headers={"ETag": TAR_OBJ.etag})
+
+    fetcher = PoliteFetcher(httpx.Client(transport=httpx.MockTransport(handler)), pacer=Pacer(0))
+    dest = tmp_path / TAR_OBJ.key
+    fetcher.fetch("https://bucket.example/t", dest, expected=TAR_OBJ)
+
+    again = fetcher.fetch("https://bucket.example/t", dest, expected=TAR_OBJ)
+
+    assert len(seen) == 1
+    assert again.status == 304
+    assert again.etag == TAR_OBJ.etag
+
+
+def test_each_fetch_is_appended_to_the_fetch_log(tmp_path):
+    log = tmp_path / "fetch_log.jsonl"
+    handler = lambda r: httpx.Response(200, content=TAR, headers={"ETag": TAR_OBJ.etag})  # noqa: E731
+    fetcher = PoliteFetcher(httpx.Client(transport=httpx.MockTransport(handler)), pacer=Pacer(0), log=log)
+    dest = tmp_path / TAR_OBJ.key
+
+    fetcher.fetch("https://bucket.example/t", dest, expected=TAR_OBJ)
+    fetcher.fetch("https://bucket.example/t", dest, expected=TAR_OBJ)
+
+    records = [json.loads(line) for line in log.read_text().splitlines()]
+    assert [(r["url"], r["status"], r["bytes"], r["requested"]) for r in records] == [
+        ("https://bucket.example/t", 200, 100, True),
+        ("https://bucket.example/t", 304, 0, False),
+    ]
+    assert all(r["fetched_at"] for r in records)

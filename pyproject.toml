@@ -56,8 +56,9 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
   "integration: needs Docker (testcontainers Postgres)",
   "live: calls a real model; run only as a deliberate, budgeted job",
+  "bucket: downloads from the real public S3 bucket; opt in with `-m bucket`",
 ]
-addopts = "-m 'not integration and not live'"
+addopts = "-m 'not integration and not live and not bucket'"
 
 [tool.ruff]
 line-length = 110
