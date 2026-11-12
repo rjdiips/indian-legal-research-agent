@@ -9,8 +9,17 @@ lost) and starts at 1 or 2 is taken, so numbers inside a paragraph (a quoted par
 list, a wrapped citation) don't split it. A run of fewer than 5 that doesn't start right after
 the delivery line is a list, not paragraphs. A paragraph runs to the next taken marker (or the
 end of the text), trailing whitespace trimmed. With no run the whole text is one unnumbered block.
-Known gap: a second opinion that restarts at 1 stays inside the first opinion's last paragraph
-(ticket 10). A paragraph's decimal sub-paragraphs (`7.1`, `7.2`) stay inside it, as printed.
+A paragraph's decimal sub-paragraphs (`7.1`, `7.2`) stay inside it, as printed.
+
+Opinions (ADR-0003): a run may restart at 1 where a new Opinion begins (`SANJAY KISHAN KAUL, J.`
+then `1.`, or `V. GOPALA GOWDA, J. 1. I have ...` on one line). A restart counts only after an
+author line at most `_AUTHOR_REACH` before it, so a numbered list quoted in a paragraph
+(witnesses, a schedule, an Act) stays inside it. A restart costs `_RESTART_COST` markers, so each
+side of it needs two or more. A first run under `_HEADNOTE_RUN` markers with no author line,
+before a restart, is the headnote's points or an index (the delivery line was not found), and is
+dropped. Each paragraph carries its Opinion's number; the author line (`NAME, J.`, `NAME, CJI`
+ending its line, `(Per Nariman, J.)`) ends the paragraph before it, starts the new Opinion and is
+kept as its author, else the author is None.
 
 Bench size: the coram block is the first bracketed list of judges ending in `J.`, `JJ.`, `CJ.`
 or `CJI` on the Judgment's first page (`[M.M. PUNCHHI AND K. VENKATASWAMI, JJ.]`), not preceded
@@ -31,7 +40,9 @@ from dataclasses import dataclass
 MAX_BENCH = 15
 
 _BODY_START = re.compile(
-    r"(?:judgments?|orders?)\s+of\s+the\s+c\S{3,5}\.?\s+(?:was|were)\s+(?:delivered|passed|pronounced)"
+    # OCR and typing slips seen: `Judgement`, `Judgments*`, `Ccurt`, `<;:ourt`, `delievered`
+    r"(?:judge?ments?\*?|orders?)(?:\s+and\s+orders?)?\s+of\s+the\s+\S{4,7}\s+(?:was|were)\s+"
+    r"(?:del\w{5,8}|passed|pronounced)"
     r"|following\s+(?:judgments?|orders?)\s+(?:of\s+the\s+court\s+)?(?:was|were)\s+delivered"
     r"|Judgment\s*/\s*Order\s+of\s+the\s+Supreme\s+Court"
     r"|^\s*(?:J\s?U\s?D\s?G\s?M\s?E\s?N\s?T|O\s?R\s?D\s?E\s?R)\s*$",
@@ -52,6 +63,15 @@ class Paragraph:
     start: int  # offsets into cleaned text
     end: int
     text: str
+    opinion: int = 1  # the Opinion it belongs to, 1, 2, ... in order of appearance
+
+
+@dataclass(frozen=True)
+class Opinion:
+    number: int  # 1, 2, ... in order of appearance
+    author: str | None  # the author line as read (`SANJAY KISHAN KAUL, J.`); None when not found
+    start: int  # offsets into cleaned text; Opinions tile the whole text
+    end: int
 
 
 @dataclass(frozen=True)
@@ -76,64 +96,128 @@ _OCR_NUMERALS = str.maketrans("IlOo", "1100")
 def paragraphs(text: str) -> list[Paragraph]:
     begin = body_start(text)
     plain = [(m.start(1), _number(m[1])) for m in _LINE_MARKER.finditer(text, begin)]
-    m = _AFTER_AUTHOR.search(text, begin)
-    if m:
-        plain.append((m.start(1), 1))
+    plain += [(m.start(1), 1) for m in _AFTER_AUTHOR.finditer(text, begin)]
     bracketed = [(m.start(), _number(m[1])) for m in _BRACKET_MARKER.finditer(text, begin)]
-    starts = _numbered_chain(sorted(plain))
+    starts = _numbered_chain(sorted(set(plain)), text)
     if _far(starts, begin) and len(starts) < _SHORT_CHAIN:
         starts = []  # a short numbered list inside an unnumbered Judgment, not its paragraphs
     # One numbering style per Judgment: `12.` unless `(12)` gives a longer run starting right
     # after the delivery line (numbered footnotes `(1)`, `(2)` run through many old Judgments).
-    in_brackets = _numbered_chain(bracketed)
+    in_brackets = _numbered_chain(bracketed, text)
     if len(in_brackets) > max(len(starts), _SHORT_CHAIN - 1) and not _far(in_brackets, begin):
         starts = in_brackets
+    first = [s for s in starts if s[2] == 1]
+    if len(first) < min(len(starts), _HEADNOTE_RUN) and not _author(text, begin, starts[0][0]):
+        starts = [(start, number, opinion - 1) for start, number, opinion in starts[len(first) :]]
     if not starts:
         start = len(text) - len(text.lstrip())
         end = len(text.rstrip())
         return [Paragraph(1, None, start, end, text[start:end])] if end > start else []
 
     out = []
-    for i, (start, number) in enumerate(starts):
-        stop = starts[i + 1][0] if i + 1 < len(starts) else len(text)
+    for i, (start, number, opinion) in enumerate(starts):
+        stop = len(text)
+        if i + 1 < len(starts):
+            stop, _, next_opinion = starts[i + 1]
+            if next_opinion != opinion:  # the next Opinion's author line ends this paragraph
+                author = _author(text, start, stop)
+                stop = author.start() if author else stop
         end = start + len(text[start:stop].rstrip())
-        out.append(Paragraph(i + 1, number, start, end, text[start:end]))
+        out.append(Paragraph(i + 1, number, start, end, text[start:end], opinion))
     return out
 
 
-def _far(starts: list[tuple[int, int]], begin: int) -> bool:
+def opinions(text: str, paras: list[Paragraph]) -> list[Opinion]:
+    """The Opinions of `paras` (from `paragraphs(text)`): each runs from its author line (or first
+    paragraph) to the next Opinion; the first starts at 0 and the last ends at the end of the text."""
+    firsts = [p for i, p in enumerate(paras) if i == 0 or p.opinion != paras[i - 1].opinion]
+    out = []
+    for k, first in enumerate(firsts):
+        if k == 0:
+            start, author = 0, _author(text, body_start(text), first.start)
+        else:
+            start = paras[first.ordinal - 2].end
+            start += len(text[start : first.start]) - len(text[start : first.start].lstrip())
+            author = _author(text, start, first.start)
+        out.append(Opinion(k + 1, author and " ".join(author[0].split()), start, len(text)))
+    return [
+        Opinion(o.number, o.author, o.start, out[i + 1].start if i + 1 < len(out) else len(text))
+        for i, o in enumerate(out)
+    ]
+
+
+# An Opinion's author line: `SANJAY KISHAN KAUL, J.`, `DR. D.Y. CHANDRACHUD, CJI`,
+# `Bela M. Trivedi, J.` ending its line (or followed by paragraph 1), or `(Per Nariman, J.)`;
+# not a running header's `[S. RAVINDRA BHAT, J.]` nor a judge named in prose ("Sikri, J. held").
+_AUTHOR = re.compile(
+    r"(?<![\w.\[])(?:(?:DR|Dr)\.\s*)?(?:[A-Z](?:\.\s*|[ \t]+)|[A-Z][A-Za-z'’-]+[ \t]+)*[A-Z][A-Za-z'’-]+"
+    r",\s*(?:CJI|C\.\s?J\.|J\.)[ \t]*(?:$|(?=1\s*[.)]))"
+    r"|\(\s*Per\s+[^()]{2,60}?,?\s*(?:CJI|C\.\s?J\.|JJ?\.)\s*\)",
+    re.M,
+)
+
+
+def _author(text: str, lo: int, hi: int) -> re.Match[str] | None:
+    """The last author line in text[lo:hi], the one nearest the Opinion's first paragraph."""
+    *_, last = [None, *_AUTHOR.finditer(text, lo, hi)]
+    return last
+
+
+def _far(starts: list[tuple[int, int, int]], begin: int) -> bool:
     return not begin or not starts or starts[0][0] - begin > _FIRST_MARKER_REACH
 
 
-def _numbered_chain(candidates: list[tuple[int, int]]) -> list[tuple[int, int]]:
+def _numbered_chain(candidates: list[tuple[int, int]], text: str) -> list[tuple[int, int, int]]:
     """The best run of markers in document order whose numbers rise by 1, or by up to
-    `_MAX_STEP` where a marker was lost (OCR, a page break), starting at 1 or 2. Best = most
-    markers, then fewest skipped numbers. A list of numbers quoted inside a paragraph rarely
-    beats the Judgment's own run."""
+    `_MAX_STEP` where a marker was lost (OCR, a page break), starting at 1 or 2, and restarting
+    at 1 after an author line in `text`, where a new Opinion begins. Best = most markers, less
+    `_RESTART_COST` per restart, then fewest skipped numbers. A list of numbers quoted inside a
+    paragraph rarely beats the Judgment's own run. Returns (offset, number, Opinion) per taken marker."""
     best: dict[int, tuple[float, int]] = {}  # number -> (score, candidate index) of best chain end
-    links: list[tuple[float, int]] = []  # per candidate: (score, previous candidate index or -1)
+    links: list[tuple[float, int, bool]] = []  # per candidate: (score, previous index or -1, restart)
+    done = (float("-inf"), -1)  # the best chain ending at any earlier candidate
     for i, (_, number) in enumerate(candidates):
-        score, prev = (1.0, -1) if number in (1, 2) else (float("-inf"), -1)
+        score, prev, restart = (1.0, -1, False) if number in (1, 2) else (float("-inf"), -1, False)
+        at = candidates[i][0]
+        if (
+            number == 1
+            and done[0] + 1 - _RESTART_COST > score
+            and _author(text, max(candidates[done[1]][0], at - _AUTHOR_REACH), at)
+        ):
+            score, prev, restart = done[0] + 1 - _RESTART_COST, done[1], True
         for step in range(1, _MAX_STEP + 1):
             if number - step in best:
                 s, j = best[number - step]
                 s += 1 - 0.1 * (step - 1)
                 if s > score:
-                    score, prev = s, j
-        links.append((score, prev))
+                    score, prev, restart = s, j, False
+        links.append((score, prev, restart))
         if score > float("-inf") and (number not in best or score > best[number][0]):
             best[number] = (score, i)
+            done = max(done, (score, i))
     if not best:
         return []
-    _, i = max(best.values())
+    i = done[1]
     chain = []
     while i >= 0:
-        chain.append(candidates[i])
+        chain.append(i)
         i = links[i][1]
-    return chain[::-1]
+    chain.reverse()
+    out, opinion = [], 1
+    for i in chain:
+        opinion += links[i][2]
+        out.append((*candidates[i], opinion))
+    return out
 
 
 _MAX_STEP = 3
+# What starting a new Opinion's run costs, in markers: an Opinion needs more paragraphs than this.
+# shortcut: a one-paragraph Opinion stays in the paragraph before it; lower this if they matter.
+_RESTART_COST = 1.5
+# How far before a restart's `1.` its author line may be (an index may come between).
+_AUTHOR_REACH = 5000
+# A first run shorter than this, with no author line, before a restart is not an Opinion.
+_HEADNOTE_RUN = 10
 # How far after the delivery line the first paragraph marker may be (the author's name and a
 # case number or two come between).
 _FIRST_MARKER_REACH = 600

@@ -2,7 +2,7 @@
 
 Reads `<data_home>/text/raw/<path>.txt` (see `extract.py`), writes the cleaned text to
 `<data_home>/text/clean/<path>.txt` (UTF-8) and its offset map back to raw to
-`<data_home>/text/clean/<path>.map.json`, both atomically, and returns the paragraphs and Bench
+`<data_home>/text/clean/<path>.map.json`, both atomically, and returns the paragraphs, Opinions and Bench
 size. Storage-agnostic (ADR-0001): the caller persists the hashes, paragraphs and Bench size.
 """
 
@@ -14,7 +14,7 @@ from pathlib import Path
 
 from indian_sc_judgments_mcp.corpus.clean import clean_text
 from indian_sc_judgments_mcp.corpus.extract import raw_text_path, write_atomic
-from indian_sc_judgments_mcp.corpus.parse import Bench, Paragraph, bench_size, paragraphs
+from indian_sc_judgments_mcp.corpus.parse import Bench, Opinion, Paragraph, bench_size, opinions, paragraphs
 
 
 def clean_text_path(data_home: Path, path: str) -> Path:
@@ -31,6 +31,7 @@ class Structured:
     clean_sha256: str | None  # of the cleaned text file; None on error
     bench: Bench | None
     paragraphs: list[Paragraph] = field(default_factory=list)
+    opinions: list[Opinion] = field(default_factory=list)
     clean_text_path: Path | None = None
     error: str | None = None
 
@@ -50,10 +51,12 @@ def structure_judgment(data_home: Path, path: str, raw_sha256: str | None = None
     dest = clean_text_path(data_home, path)
     write_atomic(dest, cleaned.text.encode("utf-8"))
     write_atomic(offset_map_path(data_home, path), cleaned.offset_map_json().encode("utf-8"))
+    paras = paragraphs(cleaned.text)
     return Structured(
         path,
         cleaned.sha256,
         bench_size(cleaned.text[: cleaned.page_end(0)]),
-        paragraphs(cleaned.text),
+        paras,
+        opinions(cleaned.text, paras),
         dest,
     )

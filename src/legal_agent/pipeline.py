@@ -70,6 +70,10 @@ def write_report(
         " AND p.number IS NOT NULL AND p.char_end - p.char_start > %(long)s",
         long=_OVER_LONG,
     )
+    (multi_opinion,) = q.one(
+        "SELECT count(DISTINCT j.path) FROM judgments j JOIN opinions o ON o.path = j.path"
+        " WHERE j.clean_snapshot_id = %(s)s AND j.clean_text_sha256 IS NOT NULL AND o.number > 1"
+    )
     lines = [
         f"# Corpus run: Snapshot `{snapshot_id}`",
         "",
@@ -125,6 +129,7 @@ def write_report(
         "| Paragraph check | Judgments |",
         "|---|---|",
         f"| With a numbered paragraph over {_OVER_LONG:,} characters | {over_long} |",
+        f"| With more than one Opinion | {multi_opinion} ({_pct(multi_opinion, cleaned)}) |",
         "",
         "| Bench size | Judgments |",
         "|---|---|",

@@ -10,3 +10,7 @@ exactly as `corpus/raw_text.py` writes it. Named `<path>.txt`.
 - `2014_14_185_186` (`ocr`): ticket 09's example, from the real corpus; a stamp on page 2 comes out
   as a block of symbol lines, and its margin letters are misread (`h`, `s·`, `B Nidhi Jain`).
 - `2025_4_2742_2752` (`born_digital`): ticket 07, paragraphs numbered `1)` on a line of their own.
+- `2023_16_1209_1524` (`born_digital`, trimmed): ticket 10, the same-sex marriage Judgment with four
+  Opinions, each numbered from 1. Page 1 is whole. Each later page keeps only its lines that start
+  with a paragraph marker or name an author, cut to 60 characters and closed with a full stop
+  (41 KB of the 757 KB raw text).
