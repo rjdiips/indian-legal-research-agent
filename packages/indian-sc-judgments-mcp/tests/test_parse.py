@@ -157,6 +157,12 @@ def test_bench_size_reads_ocr_damaged_coram_blocks(coram, size):
     assert bench_size(f"FEBRUARY 14, 2017 {coram} Penal Code, 1860 - ss. 300").size == size
 
 
+def test_a_one_judge_block_before_a_damaged_bench_block_leaves_bench_size_unknown():
+    page = "[DIPAK MISRA, CJI] STATE v. X MAY 18, 2018 [ANIL R. DAVE AND DIPAK MISRA, J.] Penal Code"
+
+    assert bench_size(page) == Bench(None, "[ANIL R. DAVE AND DIPAK MISRA, J.]")
+
+
 def test_an_opinion_author_line_is_not_a_coram():
     assert bench_size("Discussed. (Per Nariman, J.) Muslim Law: Sunnis - Discussed.") == Bench(None, None)
 
@@ -338,6 +344,37 @@ def test_numbered_headnote_points_before_the_first_author_are_not_an_opinion():
     assert [o.author for o in opinions(text, paras)] == ["DEEPAK GUPTA, J."]
 
 
+def test_a_short_order_right_after_the_delivery_line_is_kept_as_opinion_one():
+    # From 2025_4_829_834: an Order on an application (paras 1-4), then the Judgment restarts at 1.
+    text = (
+        "The Judgment of the Court was delivered by\n"
+        + _numbered(1, 4, "The order")
+        + "Vikram Nath, J.\n"
+        + _numbered(1, 6, "The")
+    )
+
+    paras = paragraphs(text)
+
+    assert [(p.opinion, p.number) for p in paras] == [(1, n) for n in range(1, 5)] + [
+        (2, n) for n in range(1, 7)
+    ]
+
+
+def test_an_index_right_after_the_delivery_line_is_not_an_opinion():
+    # From 2023_7_26_84: an index with dot leaders to page numbers comes before the author line.
+    text = (
+        "The following Judgment of the Court was delivered: INDEX\n"
+        "1. Introduction to pay commissions .............................. 4\n"
+        "2. The Report and the Orders of this Court ...................... 5\n"
+        "3. Submissions of Counsel ....................................... 9\n"
+        "PAMIDIGHANTAM SRI NARASIMHA, J.\n" + _numbered(1, 6, "The")
+    )
+
+    paras = paragraphs(text)
+
+    assert [(p.opinion, p.number) for p in paras] == [(1, n) for n in range(1, 7)]
+
+
 def test_an_opinion_whose_first_paragraph_follows_the_author_on_one_line_is_found():
     # From 2015_14_927_974: `... a larger Bench. V. GOPALA GOWDA, J. 1. I have gone through ...`
     text = (
@@ -391,6 +428,20 @@ def test_golden_same_sex_marriage_judgment_has_one_paragraph_run_per_opinion():
     assert (found[0].start, found[-1].end) == (0, len(text))
     assert all(a.end == b.start for a, b in zip(found, found[1:], strict=False))
     assert all(o.start <= p.start < p.end <= o.end for p in paras for o in found if o.number == p.opinion)
+
+
+def test_opinion_ones_author_is_not_read_from_the_coram_when_the_delivery_line_is_missing():
+    # OCR lost the coram's closing bracket, and no delivery line is found.
+    text = (
+        "MAY 18, 2018 [RANJAN GOGOi, J.\nArbitration Act - s. 11(6): the appointment of an arbitrator "
+        "is made by the Chief Justice or his designate. Held: the application is allowed.\n"
+        "CIVIL ORIGINAL JURISDICTION: Arbitration Petition No. 12 of 2014.\n"
+        "A. Sharma, Adv. for the Petitioner. B. Rao, Adv. for the Respondent.\n" + _numbered(1, 6, "The")
+    )
+
+    paras = paragraphs(text)
+
+    assert [o.author for o in opinions(text, paras)] == [None]
 
 
 def test_a_single_opinion_judgment_is_opinion_one():

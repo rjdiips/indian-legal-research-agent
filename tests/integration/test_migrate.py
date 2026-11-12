@@ -58,6 +58,32 @@ def test_a_failing_file_is_rolled_back_and_not_recorded(conn, tmp_path):
     assert migrate(conn, d) == ["0002_broken.sql"]
 
 
+def test_opinions_migration_gives_each_cleaned_judgment_an_opinion_one(conn, tmp_path):
+    repo_migrations = Path(__file__).parents[2] / "migrations"
+    files = sorted(repo_migrations.glob("*.sql"))
+    before = [f for f in files if f.name < "0006"]
+    _write(tmp_path, {f.name: f.read_text() for f in before})
+    migrate(conn, tmp_path)
+    conn.execute("INSERT INTO snapshots VALUES ('s', now(), '{}')")
+    for path in ("a", "b"):
+        conn.execute(
+            "INSERT INTO judgments (path, snapshot_id, source_uri, license, attribution)"
+            " VALUES (%s, 's', 'u', 'l', 'x')",
+            [path],
+        )
+    conn.execute("INSERT INTO paragraphs VALUES ('a', 1, 1, 5, 40), ('a', 2, 2, 41, 90)")
+
+    _write(tmp_path, {"0006_opinions.sql": (repo_migrations / "0006_opinions.sql").read_text()})
+    assert migrate(conn, tmp_path) == ["0006_opinions.sql"]
+
+    # Opinion 1 covers the paragraphs; Judgment b has no paragraphs, so no Opinion until clean-text.
+    assert conn.execute("SELECT path, number, author, char_start, char_end FROM opinions").fetchall() == [
+        ("a", 1, None, 0, 90)
+    ]
+    rows = conn.execute("SELECT ordinal, opinion FROM paragraphs ORDER BY ordinal").fetchall()
+    assert rows == [(1, 1), (2, 1)]
+
+
 def test_repo_migrations_apply_cleanly(conn):
     repo_migrations = Path(__file__).parents[2] / "migrations"
 
