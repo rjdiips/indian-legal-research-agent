@@ -36,8 +36,8 @@ Measured on the 8,998 raw texts of Snapshot 0679ec43, with `clean_text` run in a
 - `B`–`H` before a capitalised word at the start of a raw line, in scans: 5,004 → 0
 - a trailing letter after lowercase text or a mark, label words such as `clause` not counted: 819 → 279
 
-A "scan" here is a text where margin letters are glued to lines on half its pages or more (1,089 texts, almost all from 2015–2017). The capitalised-word, mid-line `c` and colon or mark rules apply only to these texts. Born-digital texts use headings such as `B Grounds of challenge` and illustrations such as `A concerts with B`, so they keep their 839 lines that start with `B`–`H` and a capitalised word.
+A "scan" here is a text where margin letters are glued to lines on half its pages or more (1,118 texts, all but 2 from 2014–2017). The capitalised-word, mid-line `c` and colon or mark rules apply only to these texts. Born-digital texts use headings such as `B Grounds of challenge` and illustrations such as `A concerts with B`, so they keep their 839 lines that start with `B`–`H` and a capitalised word.
 
 **Real text lost**: of 52.4 million words of 3 or more letters, 841 words in 170 texts are gone. They are "SUPREME COURT REPORTS" or "Digital Supreme Court Reports" header words, OCR noise, or word halves that now join (`Offic ers` → `Officers`, `show- c cause` → `show-cause`, `time- s lag` → `time-lag`).
 
-**Open**: about 1,300 lone `c` margin letters stay in 2016–2017 texts that glue too few margin letters to count as scans. The paragraph and Bench size numbers are not measured here. They come with the re-run of `clean-text` and the report.
+**Open**: most of the 1,271 lone letters left are `c` margin letters in 2016–2017 texts that glue too few margin letters to count as scans. The paragraph and Bench size numbers are not measured here. They come with the re-run of `clean-text` and the report.
