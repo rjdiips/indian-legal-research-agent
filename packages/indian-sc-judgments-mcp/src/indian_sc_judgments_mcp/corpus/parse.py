@@ -28,7 +28,8 @@ splitting on commas, `and` and `&` after dropping titles. The count is kept only
 with the ending (`JJ.` needs two or more, `J.` or `CJ.` alone exactly one) and is at most 15;
 otherwise, or with no block, Bench size is unknown (`None`). The block is kept as evidence.
 A block of one judge is often an Opinion's author (`[DIPAK MISRA, CJI]` in a connected case's
-title, `(Per Nariman, J.)`), so it counts only when no later block names two or more; a block
+title, `(Per Nariman, J.)`), so it counts only when no later block follows (one that names two
+or more judges, or one that fails to parse and so leaves Bench size unknown); a block
 starting `Per` is never the coram. OCR forms of `CJI` (`CJJ`, `CJT`, `CJl`, `C.J.l`) are titles.
 """
 
@@ -246,7 +247,7 @@ _GLUED_AND = re.compile(
 
 def bench_size(first_page: str) -> Bench:
     """Bench size from the coram block on a Judgment's first page of cleaned text."""
-    first = None
+    lone = None  # the first one-judge block: the coram only when no later block exists
     for end in _CORAM_END.finditer(first_page):
         head = first_page[max(0, end.start() - 400) : end.start()]
         opens = list(_OPEN.finditer(head))
@@ -261,11 +262,11 @@ def bench_size(first_page: str) -> Bench:
             continue
         evidence = " ".join(first_page[max(0, end.start() - 400) + opening.start() : end.end()].split())
         bench = Bench(_count(content, end[1] or end[2]), evidence)
-        if bench.size == 1 or (first and bench.size is None):
-            first = first or bench
+        if bench.size == 1:
+            lone = lone or bench
             continue
         return bench
-    return first or Bench(None, None)
+    return lone or Bench(None, None)
 
 
 def _count(content: str, ending: str) -> int | None:

@@ -157,6 +157,12 @@ def test_bench_size_reads_ocr_damaged_coram_blocks(coram, size):
     assert bench_size(f"FEBRUARY 14, 2017 {coram} Penal Code, 1860 - ss. 300").size == size
 
 
+def test_a_one_judge_block_before_a_damaged_bench_block_leaves_bench_size_unknown():
+    page = "[DIPAK MISRA, CJI] STATE v. X MAY 18, 2018 [ANIL R. DAVE AND DIPAK MISRA, J.] Penal Code"
+
+    assert bench_size(page) == Bench(None, "[ANIL R. DAVE AND DIPAK MISRA, J.]")
+
+
 def test_an_opinion_author_line_is_not_a_coram():
     assert bench_size("Discussed. (Per Nariman, J.) Muslim Law: Sunnis - Discussed.") == Bench(None, None)
 
