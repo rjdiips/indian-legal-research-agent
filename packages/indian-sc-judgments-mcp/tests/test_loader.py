@@ -1,14 +1,14 @@
 import datetime as dt
 from pathlib import Path
 
-from indian_sc_judgments_mcp.corpus.loader import ATTRIBUTION, LICENSE, load_judgments
+from indian_sc_judgments_mcp.corpus.loader import ATTRIBUTION, LICENSE, load_judgments_from
 
 TINY = Path(__file__).parent / "fixtures" / "metadata_tiny.parquet"
 SOURCE = "https://indian-supreme-court-judgments.s3.amazonaws.com/metadata/parquet/year=2020/metadata.parquet"
 
 
 def _load():
-    return load_judgments(TINY, snapshot_id="snap-1", source_uri=SOURCE)
+    return load_judgments_from([(TINY, SOURCE)], snapshot_id="snap-1")
 
 
 def test_repeated_path_produces_one_judgment_from_the_latest_scrape():

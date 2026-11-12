@@ -92,10 +92,6 @@ def parse_decision_date(raw: str | None) -> dt.date | None:
     return None
 
 
-def load_judgments(parquet: Path, *, snapshot_id: str, source_uri: str) -> LoadResult:
-    return load_judgments_from([(parquet, source_uri)], snapshot_id=snapshot_id)
-
-
 def load_judgments_from(sources: Sequence[tuple[Path, str]], *, snapshot_id: str) -> LoadResult:
     """Load several metadata parquets, given as `(file, source_uri)`, deduplicating on `path`
     across all of them. Rows are read in the order given, which settles `scraped_at` ties."""

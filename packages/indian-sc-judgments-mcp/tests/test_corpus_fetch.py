@@ -5,7 +5,7 @@ import pytest
 from fake_bucket import FakeBucket
 
 from indian_sc_judgments_mcp.corpus.download import Pacer
-from indian_sc_judgments_mcp.corpus.fetch import fetch_corpus
+from indian_sc_judgments_mcp.corpus.fetch import english_tar_keys, fetch_corpus, tar_year
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BUCKET_URL = "https://indian-supreme-court-judgments.s3.amazonaws.com/"
@@ -103,3 +103,10 @@ def test_a_wider_year_range_backfills_only_the_new_tars(tmp_path):
 def test_a_requested_year_without_an_english_tar_is_an_error(tmp_path):
     with pytest.raises(LookupError, match="year=2019"):
         _fetch(bucket(), tmp_path, [2019, 2020])
+
+
+def test_tar_year_reads_the_reporter_year_from_an_english_tar_key():
+    index_key, tar_key = english_tar_keys(2017)
+
+    assert (tar_year(tar_key), tar_year(index_key)) == (2017, 2017)
+    assert tar_year(META_2020) is None

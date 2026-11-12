@@ -14,6 +14,7 @@ Storage-agnostic (ADR-0001): returns records and paths; the caller persists the 
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +41,12 @@ def english_tar_keys(year: int) -> tuple[str, str]:
     """The index and tar keys for one Reporter year's English PDFs."""
     base = f"{TAR_PREFIX}year={year}/english/"
     return base + "english.index.json", base + "english.tar"
+
+
+def tar_year(key: str) -> int | None:
+    """The Reporter year of a key under `data/tar/year=<YEAR>/`; None for any other key."""
+    m = re.match(rf"{TAR_PREFIX}year=(\d+)/", key)
+    return int(m[1]) if m else None
 
 
 def local_path(data_home: Path, key: str) -> Path:

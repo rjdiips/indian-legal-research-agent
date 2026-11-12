@@ -1,10 +1,11 @@
 """Clean extracted raw text, save Pinpoint paragraphs and Bench size (issue 04).
 
 Every Judgment with raw text (`raw_text_sha256` set by `legal-agent extract-text`) is cleaned:
-the cleaned text and its offset map go to `<data_home>/text/clean/`, and its hash, paragraphs
-and Bench size (or its error) to Postgres. A raw file that no longer matches its recorded hash
-is an error on that Judgment. Rerunning re-cleans everything and gives the same hashes. The corpus
-logic lives in the storage-agnostic package; this module only persists it (ADR-0001).
+the cleaned text and its offset map go to `<data_home>/text/clean/`, and its hash, paragraph
+offsets, Bench size and `clean_snapshot_id` (the raw text's Snapshot), or its error, to
+Postgres. A raw file that no longer matches its recorded hash is an error on that Judgment.
+Rerunning re-cleans everything and gives the same hashes. The corpus logic lives in the
+storage-agnostic package; this module only persists it (ADR-0001).
 """
 
 from __future__ import annotations
@@ -38,12 +39,13 @@ def clean_texts(
 ) -> CleanReport:
     migrate(conn, migrations_dir)
     todo = conn.execute(
-        "SELECT path, raw_text_sha256 FROM judgments WHERE raw_text_sha256 IS NOT NULL ORDER BY path"
+        "SELECT path, raw_text_sha256, raw_snapshot_id FROM judgments"
+        " WHERE raw_text_sha256 IS NOT NULL ORDER BY path"
     ).fetchall()
     report = CleanReport(counts={})
     tally: Counter[str] = Counter()
-    batch: list[Structured] = []
-    for path, raw_sha256 in todo:
+    batch: list[tuple[Structured, str | None]] = []
+    for path, raw_sha256, snapshot_id in todo:
         result = structure_judgment(data_home, path, raw_sha256=raw_sha256)
         if result.error:
             tally["errors"] += 1
@@ -54,7 +56,7 @@ def clean_texts(
             tally["numbered" if numbered else "unnumbered"] += 1
             tally["bench_known" if result.bench and result.bench.size else "bench_unknown"] += 1
             tally["paragraphs"] += len(result.paragraphs)
-        batch.append(result)
+        batch.append((result, snapshot_id))
         if progress:
             progress(result)
         if len(batch) >= _BATCH:
@@ -65,8 +67,8 @@ def clean_texts(
     return report
 
 
-def _save(conn: psycopg.Connection, batch: list[Structured]) -> None:
+def _save(conn: psycopg.Connection, batch: list[tuple[Structured, str | None]]) -> None:
     with conn.transaction():
-        for result in batch:
-            save_structure(conn, result)
+        for result, snapshot_id in batch:
+            save_structure(conn, result, snapshot_id)
     batch.clear()

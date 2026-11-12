@@ -19,7 +19,7 @@ A reproducible, deduplicated local corpus of English Supreme Court Judgments: ea
 | 7 | Text on disk under `DATA_DIR` (raw and clean, one file each per Judgment). Postgres holds metadata, paragraph offsets and text hashes. |
 | 8 | Deduplicate on `path`. All date logic uses `decision_date`, never the bucket's `year` (Reporter year). |
 | 9 | Text comes from the embedded PDF text layer (PyMuPDF). No OCR. |
-| 10 | `text_quality`: structural check. `ocr` if pages are full-page images under an invisible (render mode 3) text layer; otherwise `born_digital`. No score. |
+| 10 | `text_quality`: structural check. `ocr` if pages are full-page images under an invisible (render mode 3) text layer; otherwise `born_digital`. No score. A full-page image with no text layer at all also counts as a scanned page (e.g. page 4 of `2017_9_766_790`, a corpus PDF), as in `raw_text._is_scanned`. |
 | 11 | Cleaning (reversible, with an offset map to raw text): page headers and footers, margin letters, hyphenation and line-wrap breaks, the Judgment's own citation line. Headnote and section splitting are deferred until after Day 3. |
 | 12 | Paragraphs: `(number, text, char_start, char_end)` over cleaned text, from numbered markers at line start. With no markers, one unnumbered block. |
 | 13 | `bench_size` from the coram block. `NULL` when unsure, never a default of 1. Keep the evidence string. |

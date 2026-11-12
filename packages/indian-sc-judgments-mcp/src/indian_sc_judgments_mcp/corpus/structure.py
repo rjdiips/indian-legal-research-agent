@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from indian_sc_judgments_mcp.corpus.clean import clean_text
-from indian_sc_judgments_mcp.corpus.extract import raw_text_path
+from indian_sc_judgments_mcp.corpus.extract import raw_text_path, write_atomic
 from indian_sc_judgments_mcp.corpus.parse import Bench, Paragraph, bench_size, paragraphs
 
 
@@ -48,8 +48,8 @@ def structure_judgment(data_home: Path, path: str, raw_sha256: str | None = None
 
     cleaned = clean_text(data.decode("utf-8"), path=path)
     dest = clean_text_path(data_home, path)
-    _write(dest, cleaned.text.encode("utf-8"))
-    _write(offset_map_path(data_home, path), cleaned.offset_map_json().encode("utf-8"))
+    write_atomic(dest, cleaned.text.encode("utf-8"))
+    write_atomic(offset_map_path(data_home, path), cleaned.offset_map_json().encode("utf-8"))
     return Structured(
         path,
         cleaned.sha256,
@@ -57,10 +57,3 @@ def structure_judgment(data_home: Path, path: str, raw_sha256: str | None = None
         paragraphs(cleaned.text),
         dest,
     )
-
-
-def _write(dest: Path, data: bytes) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_name(dest.name + ".part")
-    tmp.write_bytes(data)
-    tmp.replace(dest)

@@ -47,7 +47,8 @@ class Snapshot:
     def save(self, data_home: Path, dedup: Mapping[str, object] | None = None) -> Path:
         path = Path(data_home) / "snapshots" / f"{self.snapshot_id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.manifest(dedup), indent=2) + "\n")
+        if not path.exists():  # a listing seen before keeps its first fetch time
+            path.write_text(json.dumps(self.manifest(dedup), indent=2) + "\n")
         return path
 
 

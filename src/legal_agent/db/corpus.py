@@ -24,11 +24,25 @@ _UPSERT_JUDGMENT = (
 
 def save_snapshot(conn: psycopg.Connection, snapshot: Snapshot, dedup: Mapping[str, object]) -> None:
     conn.execute(
+        # A listing seen before keeps its first fetch time, so the latest Snapshot is the newest
+        # bucket state, not whichever listing was ingested last.
         "INSERT INTO snapshots (snapshot_id, fetched_at, manifest) VALUES (%s, %s, %s) "
-        "ON CONFLICT (snapshot_id) DO UPDATE"
-        " SET fetched_at = EXCLUDED.fetched_at, manifest = EXCLUDED.manifest",
+        "ON CONFLICT (snapshot_id) DO NOTHING",
         [snapshot.snapshot_id, snapshot.fetched_at, Jsonb(snapshot.manifest(dedup))],
     )
+
+
+def snapshot_manifest(conn: psycopg.Connection, snapshot_id: str | None = None) -> dict:
+    """The manifest of Snapshot `snapshot_id`, or of the latest one (by first fetch time)."""
+    row = conn.execute(
+        "SELECT manifest FROM snapshots WHERE snapshot_id = %s"
+        if snapshot_id
+        else "SELECT manifest FROM snapshots ORDER BY fetched_at DESC LIMIT 1",
+        [snapshot_id] if snapshot_id else [],
+    ).fetchone()
+    if row is None:
+        raise LookupError(f"no Snapshot {snapshot_id}" if snapshot_id else "no Snapshot yet; run ingest")
+    return row[0]
 
 
 def upsert_judgments(conn: psycopg.Connection, judgments: Iterable[Judgment]) -> int:
@@ -40,43 +54,52 @@ def upsert_judgments(conn: psycopg.Connection, judgments: Iterable[Judgment]) ->
 
 _SAVE_RAW_TEXT = (
     "UPDATE judgments SET raw_text_sha256 = %s, text_quality = %s, page_count = %s, scanned_pages = %s,"
-    " text_error = %s, text_extracted_at = now(), updated_at = now() WHERE path = %s"
+    " text_error = %s, raw_snapshot_id = %s, text_extracted_at = now(), updated_at = now() WHERE path = %s"
 )
 
 
-def save_raw_text(conn: psycopg.Connection, extracted: Extracted) -> bool:
-    """Record one Judgment's raw text hash and Text quality (or its error). False when no
-    Judgment has that `path`."""
+def save_raw_text(conn: psycopg.Connection, extracted: Extracted, snapshot_id: str) -> bool:
+    """Record one Judgment's raw text hash and Text quality (or its error), extracted from Snapshot
+    `snapshot_id`'s tar. False when no Judgment has that `path`."""
     e = extracted
     quality = e.text_quality.value if e.text_quality else None
-    cur = conn.execute(_SAVE_RAW_TEXT, [e.sha256, quality, e.pages, e.scanned_pages, e.error, e.path])
+    cur = conn.execute(
+        _SAVE_RAW_TEXT, [e.sha256, quality, e.pages, e.scanned_pages, e.error, snapshot_id, e.path]
+    )
     return cur.rowcount > 0
 
 
 _SAVE_STRUCTURE = (
     "UPDATE judgments SET clean_text_sha256 = %s, bench_size = %s, bench_evidence = %s,"
-    " clean_error = %s, cleaned_at = now(), updated_at = now() WHERE path = %s"
+    " clean_error = %s, clean_snapshot_id = %s, cleaned_at = now(), updated_at = now() WHERE path = %s"
 )
 _INSERT_PARAGRAPH = (
-    "INSERT INTO paragraphs (path, ordinal, number, char_start, char_end, text)"
-    " VALUES (%s, %s, %s, %s, %s, %s)"
+    "INSERT INTO paragraphs (path, ordinal, number, char_start, char_end) VALUES (%s, %s, %s, %s, %s)"
 )
 
 
-def save_structure(conn: psycopg.Connection, structured: Structured) -> bool:
-    """Record one Judgment's cleaned text hash, Bench size and paragraphs (or its cleaning error),
-    replacing any paragraphs from an earlier run. False when no Judgment has that `path`."""
+def save_structure(conn: psycopg.Connection, structured: Structured, snapshot_id: str | None) -> bool:
+    """Record one Judgment's cleaned text hash, Bench size and paragraph offsets (or its cleaning
+    error), derived from raw text of Snapshot `snapshot_id`, replacing any paragraphs from an earlier
+    run. False when no Judgment has that `path`."""
     s = structured
     bench = s.bench
     cur = conn.execute(
         _SAVE_STRUCTURE,
-        [s.clean_sha256, bench.size if bench else None, bench.evidence if bench else None, s.error, s.path],
+        [
+            s.clean_sha256,
+            bench.size if bench else None,
+            bench.evidence if bench else None,
+            s.error,
+            snapshot_id,
+            s.path,
+        ],
     )
     if cur.rowcount == 0:
         return False
     conn.execute("DELETE FROM paragraphs WHERE path = %s", [s.path])
     with conn.cursor() as c:
         c.executemany(
-            _INSERT_PARAGRAPH, [(s.path, p.ordinal, p.number, p.start, p.end, p.text) for p in s.paragraphs]
+            _INSERT_PARAGRAPH, [(s.path, p.ordinal, p.number, p.start, p.end) for p in s.paragraphs]
         )
     return True

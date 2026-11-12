@@ -39,26 +39,28 @@ def corpus(conn, tmp_path):
     snapshot = Snapshot.from_listing([])
     save_snapshot(conn, snapshot, {})
     upsert_judgments(conn, [_judgment(p, snapshot.snapshot_id) for p in [*WITH_RAW, NOT_EXTRACTED]])
+    raw_snapshot = Snapshot.from_listing([], fetched_at="2026-01-01T00:00:00+00:00")
+    save_snapshot(conn, raw_snapshot, {})
     for path in WITH_RAW:
         dest = raw_text_path(tmp_path, path)
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(GOLDEN / f"{path}.txt", dest)
         sha = hashlib.sha256(dest.read_bytes()).hexdigest()
-        save_raw_text(conn, Extracted(path, sha, TextQuality.OCR, 1, 1, dest))
+        save_raw_text(conn, Extracted(path, sha, TextQuality.OCR, 1, 1, dest), raw_snapshot.snapshot_id)
     return tmp_path
 
 
 def _rows(conn):
     rows = conn.execute(
-        "SELECT path, clean_text_sha256, bench_size, bench_evidence, clean_error, cleaned_at IS NOT NULL"
-        " FROM judgments"
+        "SELECT path, clean_text_sha256, bench_size, bench_evidence, clean_error, cleaned_at IS NOT NULL,"
+        " clean_snapshot_id FROM judgments"
     ).fetchall()
     return {r[0]: r[1:] for r in rows}
 
 
 def _paragraphs(conn, path):
     return conn.execute(
-        "SELECT ordinal, number, char_start, char_end, text FROM paragraphs WHERE path = %s ORDER BY ordinal",
+        "SELECT ordinal, number, char_start, char_end FROM paragraphs WHERE path = %s ORDER BY ordinal",
         [path],
     ).fetchall()
 
@@ -67,7 +69,7 @@ def test_each_judgment_gets_its_cleaned_text_hash_bench_size_and_paragraphs(conn
     report = clean_texts(conn, data_home=corpus)
 
     rows = _rows(conn)
-    sha, size, evidence, error, stamped = rows["2019_18_990_994"]
+    sha, size, evidence, error, stamped, _ = rows["2019_18_990_994"]
     clean_file = clean_text_path(corpus, "2019_18_990_994")
     assert sha == hashlib.sha256(clean_file.read_bytes()).hexdigest()
     assert (size, evidence) == (2, "[DEEPAK GUPTA AND SANJIV KHANNA, JJ.]")
@@ -76,7 +78,11 @@ def test_each_judgment_gets_its_cleaned_text_hash_bench_size_and_paragraphs(conn
     text = clean_file.read_text(encoding="utf-8")
     paras = _paragraphs(conn, "2019_18_990_994")
     assert [p[1] for p in paras] == list(range(1, 12))
-    assert all(body == text[start:end] for _, _, start, end, body in paras)
+    # Postgres keeps only offsets; each paragraph's text is its slice of the cleaned-text file.
+    slices = [text[start:end] for _, _, start, end in paras]
+    assert [body.split(".")[0] for body in slices] == [str(n) for n in range(1, 12)]
+    assert slices[0].startswith("1. The short question involved in this appeal")
+    assert all(body == body.strip() for body in slices)
     assert report.counts == {
         "cleaned": 3, "errors": 0, "numbered": 2, "unnumbered": 1, "bench_known": 2, "bench_unknown": 1,
         "paragraphs": 11 + 1 + 18,
@@ -88,7 +94,7 @@ def test_an_unnumbered_judgment_is_one_block_and_an_unsure_bench_is_null(conn, c
 
     rows = _rows(conn)
     assert rows["S_1996_4_314_315"][1:3] == (2, "[M.M. PUNCHHI, AND K. VENKATASWAMI, JJ.]")
-    [(ordinal, number, start, _, _)] = _paragraphs(conn, "S_1996_4_314_315")
+    [(ordinal, number, start, _)] = _paragraphs(conn, "S_1996_4_314_315")
     assert (ordinal, number, start) == (1, None, 0)
     assert rows["2023_1_1105_1110"][1:3] == (None, None)  # Bench size unknown, never 1
 
@@ -96,7 +102,7 @@ def test_an_unnumbered_judgment_is_one_block_and_an_unsure_bench_is_null(conn, c
 def test_a_judgment_without_raw_text_is_left_alone(conn, corpus):
     clean_texts(conn, data_home=corpus)
 
-    assert _rows(conn)[NOT_EXTRACTED] == (None, None, None, None, False)
+    assert _rows(conn)[NOT_EXTRACTED] == (None, None, None, None, False, None)
 
 
 def test_raw_text_changed_since_extraction_is_an_error_on_its_judgment(conn, corpus):
@@ -104,7 +110,7 @@ def test_raw_text_changed_since_extraction_is_an_error_on_its_judgment(conn, cor
 
     report = clean_texts(conn, data_home=corpus)
 
-    sha, size, _, error, stamped = _rows(conn)["2019_18_990_994"]
+    sha, size, _, error, stamped, _ = _rows(conn)["2019_18_990_994"]
     assert (sha, size, stamped) == (None, None, True)
     assert "changed" in error
     assert _paragraphs(conn, "2019_18_990_994") == []
@@ -121,3 +127,11 @@ def test_rerunning_replaces_paragraphs_and_gives_the_same_hashes(conn, corpus):
     again = _rows(conn), _paragraphs(conn, "2023_1_1105_1110")
     assert {p: r[:4] for p, r in again[0].items()} == {p: r[:4] for p, r in first[0].items()}
     assert again[1] == first[1]
+
+
+def test_cleaned_text_records_the_snapshot_its_raw_text_came_from(conn, corpus):
+    clean_texts(conn, data_home=corpus)
+
+    (raw_snapshot,) = conn.execute("SELECT snapshot_id FROM snapshots ORDER BY fetched_at DESC").fetchone()
+    assert {r[5] for r in _rows(conn).values()} == {raw_snapshot, None}
+    assert _rows(conn)["2019_18_990_994"][5] == raw_snapshot
